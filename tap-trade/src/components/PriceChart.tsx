@@ -276,9 +276,9 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
         >
           <div
             className="flex items-center"
-            style={{ transform: "translateY(-50%)" }}
+            style={{ transform: "translateY(-50%) translateX(3px)" }}
           >
-            <span className="inline-block h-0 w-0 border-y-[6px] border-y-transparent border-l-[10px] border-l-[#ff3b8d] drop-shadow-[0_0_8px_rgba(255,59,141,0.8)]" />
+            <span className="inline-block h-0 w-0 border-y-[7px] border-y-transparent border-l-[11px] border-l-[#ff3b8d] drop-shadow-[0_0_10px_rgba(255,59,141,0.85)]" />
           </div>
         </div>
       )}

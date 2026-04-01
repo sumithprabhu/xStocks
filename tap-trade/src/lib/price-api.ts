@@ -3,7 +3,7 @@ import type { TokenConfig } from "./types";
 const BASE = "/xstocks";
 
 /**
- * Fetch the latest price for one token from the xStocks (Backed) API.
+ * Fetch the latest price for one token from the Backed price API (proxied in dev).
  * Public endpoint, no auth required.
  */
 export async function fetchQuote(

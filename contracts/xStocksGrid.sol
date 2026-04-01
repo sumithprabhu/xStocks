@@ -6,97 +6,84 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./PriceFeed.sol";
+import "./GridToken.sol";
 import "./GridMath.sol";
 
 /// @title xStocksGrid
 /// @notice Grid-based prediction market for xStocks tokenized equities.
 ///
 /// ═══════════════════════════════════════════════════════════
-///  HOW THE GRID WORKS
+///  TOKEN ECONOMICS  (1 GridToken = 1 USDC, always)
 /// ═══════════════════════════════════════════════════════════
 ///
-///  A 2D matrix anchored to the current price:
+///  depositUsdc($100)   →  mint 100 GridTokens   (1:1)
+///  redeemForUsdc(100)  →  burn 100 GridTokens, receive $100 USDC  (1:1)
+///
+///  The stock price is used ONLY for GridMath multiplier calculation.
+///  It does NOT affect how many GridTokens are issued — that is always 1:1.
+///
+///  After redeeming to USDC, users call xChange (Backed API) off-chain
+///  to swap their USDC for real xQQQ / xSPY / etc. tokens.
+///
+/// ═══════════════════════════════════════════════════════════
+///  GRID
+/// ═══════════════════════════════════════════════════════════
 ///
 ///       T+1    T+2    T+3    T+4    T+5
 ///  +5   x1.8   x2.2   x2.8   x3.5   x4.2
-///  +4   x1.6   x2.0   x2.5   x3.1   x3.8
 ///  +3   x1.4   x1.8   x2.2   x2.7   x3.3
 ///  [0]  ─ CURRENT PRICE ───────────────────
 ///  -3   x1.4   x1.8   x2.2   x2.7   x3.3
-///  ...
 ///
-///  Each cell = "will xAAPL price TOUCH this level before bucket T+N closes?"
-///
-///  TOUCH semantics: bet wins if price's HIGH/LOW ever reached the target
-///  during the bucket — NOT just the end-of-bucket close price.
+///  TOUCH semantics: bet wins if HIGH (up) or LOW (down) touches target.
 ///
 /// ═══════════════════════════════════════════════════════════
-///  TWO WAYS TO ENTER
+///  LP POOL
 /// ═══════════════════════════════════════════════════════════
 ///
-///  1. placeBet()          — bet xStock tokens directly (e.g. 0.5 xAAPL)
-///  2. placeBetWithUSDC()  — bet USDC; converted to token-equivalent at spot
-///
-///  In both cases the WIN payout is always in xStock tokens.
-///  Win 3x on xAAPL → receive 3x xAAPL tokens from the LP pool.
-///
-/// ═══════════════════════════════════════════════════════════
-///  LIQUIDITY POOL
-/// ═══════════════════════════════════════════════════════════
-///
-///  LPs deposit xStock tokens to back the house and earn a share of the
-///  house edge on every losing bet.
-///
-///  shares minted = amount * totalShares / poolBalance  (proportional)
-///  redeemable value = shares / totalShares * poolBalance
-///
-///  Losing bets:  tokens stay in pool  → pool grows → share NAV increases
-///  Winning bets: tokens paid from pool → pool shrinks
-///
-/// ═══════════════════════════════════════════════════════════
-///  PRICES / MATH
-/// ═══════════════════════════════════════════════════════════
-///
-///  All prices are 6-decimal USDC (e.g. 190_240_000 = $190.24).
-///  Multipliers use GBM / normal-CDF via GridMath library.
-///  SCALE = 1e18: tokenAmount(18dec) * price(6dec) / 1e18 = usdcValue(6dec)
+///  LPs deposit USDC → pool holds GridTokens (1:1 backed).
+///  Losing bets leave GridTokens in pool → LP share NAV increases.
 ///
 contract xStocksGrid is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    // ─── Constants ────────────────────────────────────────────────────────────
+    // ─── Decimal bridge ───────────────────────────────────────────────────────
+    //  GridToken: 18 dec   USDC: 6 dec   factor: 1e12
+    //  1 GridToken (1e18)  =  1 USDC (1_000_000)
+    uint256 internal constant GT_DECIMALS   = 1e18;
+    uint256 internal constant USDC_DECIMALS = 1e6;
+    uint256 internal constant GT_TO_USDC    = 1e12;   // gridTokens / GT_TO_USDC = usdc
 
-    /// @dev token(18dec) * price(6dec) / SCALE = usdc(6dec)
-    uint256 internal constant SCALE = 1e18;
+    // Price math: token(18dec) * price(6dec) / PRICE_SCALE = usdc(6dec)
+    uint256 internal constant PRICE_SCALE = 1e18;
 
     // ─── Structs ──────────────────────────────────────────────────────────────
 
     struct TokenConfig {
         bool    active;
-        uint256 annualVolBps;          // Annual sigma in bps (2500 = 25%)
+        address gridToken;             // gxQQQx / gxSPYx — our USDC-backed ERC-20
+        uint256 annualVolBps;          // Annual sigma (2500 = 25%)
         uint256 tickSizeUsdc;          // Price step per row (6-dec USDC)
         uint256 bucketSeconds;         // Seconds per time column
-        uint256 houseEdgeBps;          // Protocol take in bps (1000 = 10%)
-        uint256 minBetUsdc;            // Min bet in USDC equivalent (6 dec)
-        uint256 maxBetUsdc;            // Max bet in USDC equivalent (6 dec)
-        uint8   gridWidth;             // Visible time columns (max timeBuckets)
-        uint8   gridHalfHeight;        // Price rows above and below center
-        uint256 openBoostBps;          // Vol multiplier at open (25000 = 2.5x)
-        uint256 closeBoostBps;         // Vol multiplier at close (18000 = 1.8x)
-        uint256 afterHoursBps;         // Vol multiplier after hours (4000 = 0.4x)
+        uint256 houseEdgeBps;          // Protocol take (1000 = 10%)
+        uint256 minBetUsdc;            // Min bet in USDC (6 dec)
+        uint256 maxBetUsdc;            // Max bet in USDC (6 dec)
+        uint8   gridWidth;             // Max time columns
+        uint8   gridHalfHeight;        // Price rows above and below centre
+        uint256 openBoostBps;          // 25000 = 2.5x vol at open
+        uint256 closeBoostBps;         // 18000 = 1.8x vol at close
+        uint256 afterHoursBps;         // 4000 = 0.4x vol after hours
     }
 
     struct BetRecord {
         address player;
         address token;
-        int8    priceTicks;       // Signed row offset (+up, -down)
-        uint256 timeBuckets;      // Column offset (1-based)
-        uint256 targetPrice;      // Price level to touch (6-dec USDC)
-        uint256 expiryTs;         // Bucket close timestamp
-        uint256 tokenAmount;      // xStock token-equivalent wagered (18 dec)
-        uint256 usdcPaid;         // USDC paid by user (0 for token bets, 6 dec)
-        uint256 multiplier;       // Payout multiplier x100 (e.g. 300 = 3x)
-        bool    isUsdcBet;
+        int8    priceTicks;
+        uint256 timeBuckets;
+        uint256 targetPrice;           // 6-dec USDC
+        uint256 expiryTs;
+        uint256 gridTokenAmount;       // GridTokens wagered (18 dec = same USDC value)
+        uint256 multiplier;            // x100 (220 = 2.20x)
         bool    resolved;
         bool    won;
         bool    claimed;
@@ -106,32 +93,33 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
 
     IERC20    public immutable usdc;
     PriceFeed public priceFeed;
-
-    bool public paused;
+    bool      public paused;
 
     uint256 public nextBetId = 1;
-    uint256 public minPoolTokens; // min LP pool per token before bets accepted
 
     mapping(address => TokenConfig) public tokenConfigs;
     mapping(uint256 => BetRecord)   public bets;
 
-    // LP pool: per-token xStock balances + share accounting
-    mapping(address => uint256) public lpShares;          // LP address => total shares (all tokens)
-    mapping(address => mapping(address => uint256)) public lpTokenShares; // LP => token => shares
-    mapping(address => uint256) public totalPoolShares;   // token => total LP shares
-    // Free balance = IERC20(token).balanceOf(this) - lockedForPayouts[token]
-    mapping(address => uint256) public lockedForPayouts;  // token => tokens locked for pending wins
+    // USDC backing pool — 1:1 with total GridTokens in existence per stock
+    mapping(address => uint256) public usdcPool;           // token => USDC (6 dec)
 
-    // USDC collected from losing USDC bets (admin withdraws to replenish reserves)
-    mapping(address => uint256) public usdcCollected;
+    // LP shares
+    mapping(address => mapping(address => uint256)) public lpShares;   // lp => token => shares
+    mapping(address => uint256)                     public totalShares; // token => total
 
-    // Risk controls: per-token per-bucket exposure
-    // token => bucketExpiry => total potential payout
+    // GridTokens locked for pending win payouts
+    mapping(address => uint256) public lockedGridTokens;   // token => GridTokens (18 dec)
+
+    // Per-bucket risk tracking
     mapping(address => mapping(uint256 => uint256)) public bucketMaxPayout;
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
-    event TokenConfigured(address indexed token);
+    event TokenConfigured(address indexed token, address indexed gridToken);
+    event UsdcDeposited(address indexed user, address indexed token, uint256 usdcAmount, uint256 gridTokens);
+    event UsdcRedeemed(address indexed user, address indexed token, uint256 gridTokens, uint256 usdcAmount);
+    event LiquidityDeposited(address indexed lp, address indexed token, uint256 usdcAmount, uint256 shares);
+    event LiquidityWithdrawn(address indexed lp, address indexed token, uint256 usdcAmount, uint256 shares);
     event BetPlaced(
         uint256 indexed betId,
         address indexed player,
@@ -139,17 +127,12 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         uint256 targetPrice,
         uint256 expiryTs,
         uint256 multiplier,
-        uint256 tokenAmount,
-        uint256 usdcPaid,
+        uint256 gridTokenAmount,
         int8    priceTicks,
-        uint256 timeBuckets,
-        bool    isUsdcBet
+        uint256 timeBuckets
     );
     event BetResolved(uint256 indexed betId, bool won, uint256 payout);
-    event WinningsClaimed(uint256 indexed betId, address indexed player, uint256 tokenPayout);
-    event LiquidityDeposited(address indexed lp, address indexed token, uint256 amount, uint256 shares);
-    event LiquidityWithdrawn(address indexed lp, address indexed token, uint256 amount, uint256 shares);
-    event UsdcWithdrawn(address indexed token, uint256 amount);
+    event WinningsClaimed(uint256 indexed betId, address indexed player, uint256 gridTokens);
     event Paused(bool paused);
 
     // ─── Constructor ──────────────────────────────────────────────────────────
@@ -159,20 +142,15 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         require(priceFeed_ != address(0), "zero priceFeed");
         usdc      = IERC20(usdc_);
         priceFeed = PriceFeed(priceFeed_);
-        minPoolTokens = 0; // owner sets per token if desired
     }
 
-    // ─── Modifiers ────────────────────────────────────────────────────────────
-
-    modifier notPaused() {
-        require(!paused, "xStocksGrid: paused");
-        _;
-    }
+    modifier notPaused() { require(!paused, "paused"); _; }
 
     // ─── Admin ────────────────────────────────────────────────────────────────
 
     function configureToken(
         address token,
+        address gridToken_,
         uint256 annualVolBps,
         uint256 tickSizeUsdc,
         uint256 bucketSeconds,
@@ -182,18 +160,18 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         uint8   gridWidth,
         uint8   gridHalfHeight
     ) external onlyOwner {
-        require(token != address(0),        "zero token");
-        require(annualVolBps > 0,           "zero vol");
-        require(tickSizeUsdc > 0,           "zero tick");
-        require(bucketSeconds > 0,          "zero bucket");
-        require(houseEdgeBps < 5000,        "edge >= 50%");
-        require(minBetUsdc > 0,             "zero min");
-        require(maxBetUsdc >= minBetUsdc,   "max < min");
-        require(gridWidth > 0,              "zero width");
-        require(gridHalfHeight > 0,         "zero height");
+        require(token      != address(0),  "zero token");
+        require(gridToken_ != address(0),  "zero gridToken");
+        require(annualVolBps > 0,          "zero vol");
+        require(tickSizeUsdc > 0,          "zero tick");
+        require(bucketSeconds > 0,         "zero bucket");
+        require(houseEdgeBps < 5000,       "edge >= 50%");
+        require(minBetUsdc > 0,            "zero min");
+        require(maxBetUsdc >= minBetUsdc,  "max < min");
 
         tokenConfigs[token] = TokenConfig({
             active:         true,
+            gridToken:      gridToken_,
             annualVolBps:   annualVolBps,
             tickSizeUsdc:   tickSizeUsdc,
             bucketSeconds:  bucketSeconds,
@@ -202,20 +180,20 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
             maxBetUsdc:     maxBetUsdc,
             gridWidth:      gridWidth,
             gridHalfHeight: gridHalfHeight,
-            openBoostBps:   25000,   // 2.5x
-            closeBoostBps:  18000,   // 1.8x
-            afterHoursBps:  4000     // 0.4x
+            openBoostBps:   25000,
+            closeBoostBps:  18000,
+            afterHoursBps:  4000
         });
-        emit TokenConfigured(token);
+        emit TokenConfigured(token, gridToken_);
     }
 
     function setTokenActive(address token, bool active) external onlyOwner {
         tokenConfigs[token].active = active;
     }
 
-    function setPriceFeed(address priceFeed_) external onlyOwner {
-        require(priceFeed_ != address(0), "zero address");
-        priceFeed = PriceFeed(priceFeed_);
+    function setPriceFeed(address pf) external onlyOwner {
+        require(pf != address(0), "zero");
+        priceFeed = PriceFeed(pf);
     }
 
     function setPaused(bool p) external onlyOwner {
@@ -223,193 +201,199 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         emit Paused(p);
     }
 
-    /// @notice Withdraw USDC accumulated from losing USDC bets.
-    function withdrawUsdc(address token, uint256 amount) external onlyOwner {
-        require(amount <= usdcCollected[token], "exceeds collected");
-        usdcCollected[token] -= amount;
-        usdc.safeTransfer(msg.sender, amount);
-        emit UsdcWithdrawn(token, amount);
+    // ─── USDC ↔ GridToken  (1 : 1) ───────────────────────────────────────────
+
+    /// @notice Deposit USDC, receive GridTokens 1:1.
+    ///         $1 USDC  →  1 GridToken (= 1e18 wei of GridToken)
+    ///
+    /// @param token      Stock identifier.
+    /// @param usdcAmount USDC to deposit (6 dec).
+    /// @return gridTokensMinted Amount of GridTokens received (18 dec).
+    function depositUsdc(address token, uint256 usdcAmount)
+        external nonReentrant notPaused
+        returns (uint256 gridTokensMinted)
+    {
+        TokenConfig memory cfg = _requireActive(token);
+        require(usdcAmount > 0, "zero usdc");
+
+        // 1:1  —  scale from 6-dec USDC to 18-dec GridToken
+        gridTokensMinted = usdcAmount * GT_TO_USDC;
+
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+        usdcPool[token] += usdcAmount;
+
+        GridToken(cfg.gridToken).mint(msg.sender, gridTokensMinted);
+        emit UsdcDeposited(msg.sender, token, usdcAmount, gridTokensMinted);
+    }
+
+    /// @notice Burn GridTokens, receive USDC 1:1.
+    ///         1 GridToken (1e18)  →  $1 USDC (1_000_000)
+    ///         After redeeming, use xChange (Backed API) to get real xStock.
+    ///
+    /// @param token           Stock identifier.
+    /// @param gridTokenAmount GridTokens to burn (18 dec).
+    /// @return usdcOut        USDC returned (6 dec).
+    function redeemForUsdc(address token, uint256 gridTokenAmount)
+        external nonReentrant
+        returns (uint256 usdcOut)
+    {
+        TokenConfig memory cfg = _requireActive(token);
+        require(gridTokenAmount > 0, "zero amount");
+
+        // 1:1  —  scale from 18-dec GridToken to 6-dec USDC
+        usdcOut = gridTokenAmount / GT_TO_USDC;
+        require(usdcOut > 0,              "rounds to zero");
+        require(usdcPool[token] >= usdcOut, "pool insufficient");
+
+        GridToken(cfg.gridToken).burn(msg.sender, gridTokenAmount);
+        usdcPool[token] -= usdcOut;
+
+        usdc.safeTransfer(msg.sender, usdcOut);
+        emit UsdcRedeemed(msg.sender, token, gridTokenAmount, usdcOut);
     }
 
     // ─── LP Pool ──────────────────────────────────────────────────────────────
 
-    /// @notice Deposit xStock tokens into the LP pool and receive pool shares.
-    ///         LPs earn house edge revenue — their share NAV grows as bets are lost.
-    /// @param token   xStock ERC-20 address.
-    /// @param amount  Tokens to deposit (18 dec).
-    function depositLiquidity(address token, uint256 amount) external nonReentrant notPaused {
-        require(tokenConfigs[token].active, "token not active");
-        require(amount > 0, "zero amount");
+    /// @notice LP deposits USDC. Pool receives GridTokens (1:1). LP gets shares.
+    ///         Share NAV rises as bettors lose (GridTokens accumulate in pool).
+    function depositLiquidity(address token, uint256 usdcAmount)
+        external nonReentrant notPaused
+    {
+        TokenConfig memory cfg = _requireActive(token);
+        require(usdcAmount >= 10 * USDC_DECIMALS, "min LP $10");
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+        usdcPool[token] += usdcAmount;
 
-        uint256 freeBal     = _freeBalance(token);
-        uint256 totalShares = totalPoolShares[token];
+        // Mint GridTokens 1:1 directly to pool (held by this contract)
+        uint256 newGT  = usdcAmount * GT_TO_USDC;
+        GridToken(cfg.gridToken).mint(address(this), newGT);
+
+        // Issue LP shares proportional to contribution
+        uint256 total  = totalShares[token];
+        uint256 poolGT = GridToken(cfg.gridToken).balanceOf(address(this));
 
         uint256 shares;
-        if (totalShares == 0 || freeBal == 0) {
-            shares = amount; // First depositor: 1:1
+        if (total == 0 || poolGT == newGT) {
+            shares = usdcAmount;                          // first LP: 1:1 with USDC
         } else {
-            shares = (amount * totalShares) / freeBal;
+            uint256 existingGT = poolGT - newGT;
+            shares = (newGT * total) / existingGT;
         }
 
-        lpTokenShares[msg.sender][token] += shares;
-        totalPoolShares[token]           += shares;
-
-        emit LiquidityDeposited(msg.sender, token, amount, shares);
+        lpShares[msg.sender][token] += shares;
+        totalShares[token]          += shares;
+        emit LiquidityDeposited(msg.sender, token, usdcAmount, shares);
     }
 
-    /// @notice Burn LP shares and receive proportional xStock tokens.
-    /// @param token   xStock ERC-20 address.
-    /// @param shares  LP shares to burn.
+    /// @notice LP burns shares, receives proportional USDC.
+    ///         Value accrues because losing bets leave GridTokens in pool.
     function withdrawLiquidity(address token, uint256 shares) external nonReentrant {
-        require(lpTokenShares[msg.sender][token] >= shares, "insufficient shares");
-        require(totalPoolShares[token] > 0, "no pool");
+        require(lpShares[msg.sender][token] >= shares, "insufficient shares");
+        uint256 total = totalShares[token];
+        require(total > 0, "no pool");
 
-        uint256 freeBal = _freeBalance(token);
-        uint256 amount  = (shares * freeBal) / totalPoolShares[token];
-        require(amount > 0, "nothing to withdraw");
+        address gridToken = tokenConfigs[token].gridToken;
+        uint256 freeGT    = _freePoolGT(token);
+        uint256 gtOut     = (shares * freeGT) / total;
+        require(gtOut > 0, "nothing to withdraw");
 
-        lpTokenShares[msg.sender][token] -= shares;
-        totalPoolShares[token]           -= shares;
+        // 1:1 convert GridTokens → USDC
+        uint256 usdcOut = gtOut / GT_TO_USDC;
+        require(usdcPool[token] >= usdcOut, "pool insufficient");
 
-        IERC20(token).safeTransfer(msg.sender, amount);
-        emit LiquidityWithdrawn(msg.sender, token, amount, shares);
+        lpShares[msg.sender][token] -= shares;
+        totalShares[token]          -= shares;
+
+        GridToken(gridToken).burn(address(this), gtOut);
+        usdcPool[token] -= usdcOut;
+
+        usdc.safeTransfer(msg.sender, usdcOut);
+        emit LiquidityWithdrawn(msg.sender, token, usdcOut, shares);
     }
 
-    /// @notice NAV per LP share in token units (18 dec).
+    /// @notice USDC value per LP share (6 dec).
     function shareNAV(address token) external view returns (uint256) {
-        uint256 totalShares = totalPoolShares[token];
-        if (totalShares == 0) return 1e18;
-        return (_freeBalance(token) * 1e18) / totalShares;
+        uint256 total = totalShares[token];
+        if (total == 0) return USDC_DECIMALS; // $1 initial
+        uint256 poolGT    = GridToken(tokenConfigs[token].gridToken).balanceOf(address(this));
+        uint256 poolUsdc  = poolGT / GT_TO_USDC;
+        return (poolUsdc * USDC_DECIMALS) / total;
     }
 
     // ─── Betting ──────────────────────────────────────────────────────────────
 
-    /// @notice Bet with xStock tokens directly (e.g. 0.5 xAAPL).
-    ///         Win => receive xStock tokens x multiplier from the pool.
-    /// @param token       xStocks ERC-20 address.
-    /// @param priceTicks  Row offset: positive = up, negative = down. Non-zero.
-    /// @param timeBuckets Column (1 = nearest bucket, up to gridWidth).
-    /// @param amount      xStock tokens to wager (18 dec).
+    /// @notice Place a bet using GridTokens.
+    ///         1 GridToken = 1 USDC of exposure.
+    ///         Bet 100 GridTokens → win at 2.2x → receive 220 GridTokens.
+    ///
+    /// @param token           Stock identifier.
+    /// @param priceTicks      Row offset: +up, -down. Non-zero.
+    /// @param timeBuckets     Column (1 = nearest, up to gridWidth).
+    /// @param gridTokenAmount GridTokens to wager (18 dec).
     function placeBet(
         address token,
         int8    priceTicks,
         uint8   timeBuckets,
-        uint256 amount
+        uint256 gridTokenAmount
     ) external nonReentrant notPaused returns (uint256 betId) {
         require(priceTicks != 0, "pick a non-zero row");
         TokenConfig memory cfg = _requireActive(token);
 
-        uint256 spotPrice = _spot(token);
-
-        // Convert token amount to USDC equivalent for limits check
-        uint256 usdcEquiv = (amount * spotPrice) / SCALE;
+        // Convert GridTokens to USDC for limits check (1:1)
+        uint256 usdcEquiv = gridTokenAmount / GT_TO_USDC;
         _applyBetLimits(cfg, usdcEquiv, token);
 
+        uint256 spot = _spot(token);
         (uint256 mult, uint256 targetPrice, uint256 expiryTs) =
-            _computeBetParams(cfg, priceTicks, timeBuckets, spotPrice, token);
+            _computeBetParams(cfg, priceTicks, timeBuckets, spot, token);
 
-        uint256 potentialPayout = GridMath.computePayout(amount, mult);
-        _checkExposure(token, cfg, expiryTs, amount, potentialPayout, spotPrice);
+        uint256 potentialPayout = GridMath.computePayout(gridTokenAmount, mult);
+        _checkExposure(token, expiryTs, gridTokenAmount, potentialPayout);
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        lockedForPayouts[token] += potentialPayout;
+        IERC20(cfg.gridToken).safeTransferFrom(msg.sender, address(this), gridTokenAmount);
+        lockedGridTokens[token]          += potentialPayout;
         bucketMaxPayout[token][expiryTs] += potentialPayout;
 
-        betId = _recordBet(msg.sender, token, priceTicks, timeBuckets, targetPrice, expiryTs, amount, 0, mult, false);
-        emit BetPlaced(betId, msg.sender, token, targetPrice, expiryTs, mult, amount, 0, priceTicks, timeBuckets, false);
-    }
-
-    /// @notice Bet with USDC — no xStock tokens required to play.
-    ///         USDC is converted to xStock token-equivalent at spot price.
-    ///         Win => receive xStock tokens x multiplier from the pool.
-    ///         Lose => USDC stays in usdcCollected for admin to replenish pool.
-    /// @param token       xStocks ERC-20 to play on.
-    /// @param priceTicks  Row offset: positive = up, negative = down. Non-zero.
-    /// @param timeBuckets Column (1 = nearest bucket, up to gridWidth).
-    /// @param usdcAmount  USDC to wager (6 dec).
-    function placeBetWithUSDC(
-        address token,
-        int8    priceTicks,
-        uint8   timeBuckets,
-        uint256 usdcAmount
-    ) external nonReentrant notPaused returns (uint256 betId) {
-        require(priceTicks != 0, "pick a non-zero row");
-        require(usdcAmount > 0,  "zero usdc");
-        TokenConfig memory cfg = _requireActive(token);
-
-        _applyBetLimits(cfg, usdcAmount, token);
-
-        uint256 spotPrice = _spot(token);
-
-        // Convert USDC to xStock token equivalent at current price
-        // tokenEquiv (18 dec) = usdcAmount (6 dec) * SCALE / price (6 dec)
-        uint256 tokenEquiv = (usdcAmount * SCALE) / spotPrice;
-        require(tokenEquiv > 0, "token equiv rounds to zero");
-
-        (uint256 mult, uint256 targetPrice, uint256 expiryTs) =
-            _computeBetParams(cfg, priceTicks, timeBuckets, spotPrice, token);
-
-        uint256 potentialPayout = GridMath.computePayout(tokenEquiv, mult);
-        _checkExposure(token, cfg, expiryTs, tokenEquiv, potentialPayout, spotPrice);
-
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-        usdcCollected[token]        += usdcAmount;
-        lockedForPayouts[token]     += potentialPayout;
-        bucketMaxPayout[token][expiryTs] += potentialPayout;
-
-        betId = _recordBet(msg.sender, token, priceTicks, timeBuckets, targetPrice, expiryTs, tokenEquiv, usdcAmount, mult, true);
-        emit BetPlaced(betId, msg.sender, token, targetPrice, expiryTs, mult, tokenEquiv, usdcAmount, priceTicks, timeBuckets, true);
+        betId = _recordBet(msg.sender, token, priceTicks, timeBuckets, targetPrice, expiryTs, gridTokenAmount, mult);
+        emit BetPlaced(betId, msg.sender, token, targetPrice, expiryTs, mult, gridTokenAmount, priceTicks, timeBuckets);
     }
 
     // ─── Resolution ───────────────────────────────────────────────────────────
 
-    /// @notice Resolve a single bet after its bucket closes.
-    ///         Uses TOUCH semantics: wins if price HIGH (for up bets) or LOW (for down bets)
-    ///         ever reached targetPrice during the bucket window.
-    ///         Callable by anyone once the backend has pushed resolution data.
+    /// @notice TOUCH resolution: up bets win if HIGH >= target, down if LOW <= target.
     function resolveBet(uint256 betId) public {
         BetRecord storage bet = bets[betId];
         require(bet.player != address(0), "bet not found");
         require(!bet.resolved,            "already resolved");
         require(block.timestamp >= bet.expiryTs, "bucket not closed");
 
-        (uint256 price, uint256 high, uint256 low, bool available) =
+        (, uint256 high, uint256 low, bool available) =
             priceFeed.getResolutionData(bet.token, bet.expiryTs);
         require(available, "resolution data not pushed yet");
 
-        bool won;
-        if (bet.priceTicks > 0) {
-            won = high >= bet.targetPrice;   // up bet: did price ever reach or exceed target?
-        } else {
-            won = low <= bet.targetPrice;    // down bet: did price ever reach or go below target?
-        }
+        bool won = bet.priceTicks > 0
+            ? high >= bet.targetPrice
+            : low  <= bet.targetPrice;
 
         bet.resolved = true;
         bet.won      = won;
 
-        uint256 payout = GridMath.computePayout(bet.tokenAmount, bet.multiplier);
-        if (lockedForPayouts[bet.token] >= payout) {
-            lockedForPayouts[bet.token] -= payout;
-        }
+        uint256 payout = GridMath.computePayout(bet.gridTokenAmount, bet.multiplier);
+        if (lockedGridTokens[bet.token] >= payout) lockedGridTokens[bet.token] -= payout;
         if (bucketMaxPayout[bet.token][bet.expiryTs] >= payout) {
             bucketMaxPayout[bet.token][bet.expiryTs] -= payout;
         }
 
         emit BetResolved(betId, won, won ? payout : 0);
-
-        // Suppress unused variable warning
-        price;
     }
 
-    /// @notice Batch resolve multiple bets in one transaction.
-    ///         Skips bets that cannot yet be resolved.
+    /// @notice Batch resolve — skips bets not yet resolvable.
     function resolveBets(uint256[] calldata betIds) external {
         for (uint256 i = 0; i < betIds.length; i++) {
             BetRecord storage bet = bets[betIds[i]];
-            if (bet.player == address(0))  continue;
-            if (bet.resolved)              continue;
+            if (bet.player == address(0)) continue;
+            if (bet.resolved)             continue;
             if (block.timestamp < bet.expiryTs) continue;
             (, , , bool available) = priceFeed.getResolutionData(bet.token, bet.expiryTs);
             if (!available) continue;
@@ -419,8 +403,8 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
 
     // ─── Claiming ─────────────────────────────────────────────────────────────
 
-    /// @notice Claim xStock token winnings for a resolved winning bet.
-    ///         Works for both token bets and USDC bets — winner always receives xStock tokens.
+    /// @notice Claim GridToken winnings. Then redeem for USDC and optionally
+    ///         use xChange (Backed) to get real xStock deposited in your wallet.
     function claimWinnings(uint256 betId) external nonReentrant {
         BetRecord storage bet = bets[betId];
         require(bet.player == msg.sender, "not your bet");
@@ -429,48 +413,46 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         require(!bet.claimed,             "already claimed");
 
         bet.claimed = true;
-        uint256 payout = GridMath.computePayout(bet.tokenAmount, bet.multiplier);
-        require(IERC20(bet.token).balanceOf(address(this)) >= payout, "pool insufficient");
+        uint256 payout   = GridMath.computePayout(bet.gridTokenAmount, bet.multiplier);
+        address gridToken = tokenConfigs[bet.token].gridToken;
+        require(GridToken(gridToken).balanceOf(address(this)) >= payout, "pool insufficient");
 
-        IERC20(bet.token).safeTransfer(msg.sender, payout);
+        IERC20(gridToken).safeTransfer(msg.sender, payout);
         emit WinningsClaimed(betId, msg.sender, payout);
     }
 
-    /// @notice Batch claim multiple winning bets in one transaction.
+    /// @notice Batch claim — all bets must be the same GridToken.
     function claimMultiple(uint256[] calldata betIds) external nonReentrant {
         uint256 totalPayout;
-        address tokenAddr;
+        address gridToken;
 
         for (uint256 i = 0; i < betIds.length; i++) {
             BetRecord storage bet = bets[betIds[i]];
             if (bet.player != msg.sender) continue;
             if (!bet.resolved || bet.claimed || !bet.won) continue;
-            if (tokenAddr == address(0)) {
-                tokenAddr = bet.token;
-            } else {
-                require(bet.token == tokenAddr, "mixed tokens: claim per token");
-            }
+
+            address gt = tokenConfigs[bet.token].gridToken;
+            if (gridToken == address(0)) gridToken = gt;
+            else require(gt == gridToken, "mixed tokens");
+
             bet.claimed  = true;
-            totalPayout += GridMath.computePayout(bet.tokenAmount, bet.multiplier);
+            totalPayout += GridMath.computePayout(bet.gridTokenAmount, bet.multiplier);
         }
 
-        require(totalPayout > 0,          "nothing to claim");
-        require(tokenAddr != address(0),  "no valid bets");
-        require(IERC20(tokenAddr).balanceOf(address(this)) >= totalPayout, "pool insufficient");
+        require(totalPayout > 0,         "nothing to claim");
+        require(gridToken != address(0), "no valid bets");
+        require(GridToken(gridToken).balanceOf(address(this)) >= totalPayout, "pool insufficient");
 
-        IERC20(tokenAddr).safeTransfer(msg.sender, totalPayout);
+        IERC20(gridToken).safeTransfer(msg.sender, totalPayout);
     }
 
     // ─── Views ────────────────────────────────────────────────────────────────
 
-    /// @notice Preview the multiplier and probability for a grid cell (no gas).
-    /// @param token        xStocks ERC-20 address.
-    /// @param priceTicks   Signed row offset.
-    /// @param timeBuckets  Column offset.
-    /// @return multiplier          Payout multiplier x100 (e.g. 250 = 2.5x).
-    /// @return probability         Implied probability (PRECISION = 1e18 = 100%).
-    /// @return targetPrice         Price level to touch (6-dec USDC).
-    /// @return payout100USDC       Payout for a $100 USDC bet (6 dec).
+    /// @notice Preview cell multiplier (no gas, call from frontend).
+    /// @return multiplier      x100 (220 = 2.20x).
+    /// @return probability     PRECISION units (1e18 = 100%).
+    /// @return targetPrice     6-dec USDC.
+    /// @return payoutFor100    Payout in GridTokens for a 100 GridToken (=$100) bet.
     function previewMultiplier(
         address token,
         int8    priceTicks,
@@ -479,32 +461,23 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         uint256 multiplier,
         uint256 probability,
         uint256 targetPrice,
-        uint256 payout100USDC
+        uint256 payoutFor100
     ) {
         TokenConfig memory cfg = tokenConfigs[token];
         if (!cfg.active) return (0, 0, 0, 0);
-
-        uint256 spotPrice = priceFeed.latestPrice(token);
-        if (spotPrice == 0) return (0, 0, 0, 0);
+        uint256 spot = priceFeed.latestPrice(token);
+        if (spot == 0) return (0, 0, 0, 0);
 
         (multiplier, probability, targetPrice,) =
-            _computeBetParamsView(cfg, priceTicks, timeBuckets, spotPrice, token);
+            _computeBetParamsView(cfg, priceTicks, timeBuckets, spot, token);
 
-        // payout for $100 USDC in token-equiv terms
-        uint256 tokenEquiv100 = (100e6 * SCALE) / spotPrice;
-        payout100USDC = GridMath.computePayout(tokenEquiv100, multiplier);
-        // Convert back to USDC for display
-        payout100USDC = (payout100USDC * spotPrice) / SCALE;
+        // 100 GridTokens = $100 bet (1:1)
+        payoutFor100 = GridMath.computePayout(100 * GT_DECIMALS, multiplier);
     }
 
-    /// @notice Get the full grid multiplier matrix for a token (for frontend rendering).
-    /// @param token  xStocks ERC-20.
-    /// @return multipliers  [row][col] array. Row 0 = top (furthest up). x100 scale.
-    /// @return prices       Target price per row (6-dec USDC).
-    /// @return currentPrice Current spot price (6-dec USDC).
+    /// @notice Full grid matrix for frontend rendering.
     function getGridMatrix(address token)
-        external
-        view
+        external view
         returns (
             uint256[][] memory multipliers,
             uint256[]   memory prices,
@@ -512,95 +485,62 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         )
     {
         TokenConfig memory cfg = tokenConfigs[token];
-        require(cfg.active, "token not active");
-
+        require(cfg.active, "not active");
         currentPrice = priceFeed.latestPrice(token);
-        require(currentPrice > 0, "price not available");
+        require(currentPrice > 0, "no price");
 
         uint256 rows = uint256(cfg.gridHalfHeight) * 2;
         uint256 cols = cfg.gridWidth;
+        multipliers  = new uint256[][](rows);
+        prices       = new uint256[](rows);
 
-        multipliers = new uint256[][](rows);
-        prices      = new uint256[](rows);
+        (bool isOpen, bool isOpeningWindow, bool isClosingWindow,
+         bool isAfterHours, bool isWeekend) = priceFeed.getMarketState(token);
 
-        (
-            bool isOpen,
-            bool isOpeningWindow,
-            bool isClosingWindow,
-            bool isAfterHours,
-            bool isWeekend
-        ) = priceFeed.getMarketState(token);
-
-        GridMath.VolatilityParams memory vp = GridMath.VolatilityParams({
-            annualVolBps:  cfg.annualVolBps,
-            tickSizeUsdc:  cfg.tickSizeUsdc,
-            bucketSeconds: cfg.bucketSeconds,
-            houseEdgeBps:  cfg.houseEdgeBps,
-            openBoostBps:  cfg.openBoostBps,
-            closeBoostBps: cfg.closeBoostBps,
-            afterHoursBps: cfg.afterHoursBps
-        });
         GridMath.MarketState memory ms = GridMath.MarketState({
-            isOpen:          isOpen,
-            isOpeningWindow: isOpeningWindow,
+            isOpen: isOpen, isOpeningWindow: isOpeningWindow,
             isClosingWindow: isClosingWindow,
-            isAfterHours:    isAfterHours,
-            isWeekend:       isWeekend
+            isAfterHours: isAfterHours, isWeekend: isWeekend
         });
+        GridMath.VolatilityParams memory vp = _buildVolParams(cfg);
 
-        // rows: top half = above current price (high absRow), bottom half = below
         for (uint256 r = 0; r < rows; r++) {
-            uint256 absRow;
             bool isUp;
+            uint256 absRow;
             if (r < cfg.gridHalfHeight) {
-                absRow = uint256(cfg.gridHalfHeight) - r;  // rows above: halfHeight down to 1
+                absRow = uint256(cfg.gridHalfHeight) - r;
                 isUp   = true;
             } else {
-                absRow = r - uint256(cfg.gridHalfHeight) + 1; // rows below: 1 up to halfHeight
+                absRow = r - uint256(cfg.gridHalfHeight) + 1;
                 isUp   = false;
             }
-
-            prices[r] = isUp
-                ? currentPrice + absRow * cfg.tickSizeUsdc
-                : currentPrice - absRow * cfg.tickSizeUsdc;
-
+            prices[r]      = isUp ? currentPrice + absRow * cfg.tickSizeUsdc
+                                  : currentPrice - absRow * cfg.tickSizeUsdc;
             multipliers[r] = new uint256[](cols);
             for (uint256 c = 0; c < cols; c++) {
-                (uint256 mult,) = GridMath.calculateMultiplier(
-                    absRow, c + 1, currentPrice, vp, ms
-                );
+                (uint256 mult,) = GridMath.calculateMultiplier(absRow, c + 1, currentPrice, vp, ms);
                 multipliers[r][c] = mult;
             }
         }
     }
 
-    /// @notice Free xStock token balance available for new bets (not locked for payouts).
-    function freeBalance(address token) external view returns (uint256) {
-        return _freeBalance(token);
+    /// @notice Free GridTokens in pool not locked for pending payouts.
+    function freePoolGridTokens(address token) external view returns (uint256) {
+        return _freePoolGT(token);
     }
 
-    /// @notice Bet status and potential payout details.
+    /// @notice Returns the full TokenConfig struct for a token (used by xStockVault).
+    function getTokenConfig(address token) external view returns (TokenConfig memory) {
+        return tokenConfigs[token];
+    }
+
     function getBetStatus(uint256 betId)
-        external
-        view
-        returns (
-            bool    resolved,
-            bool    won,
-            bool    claimed,
-            uint256 tokenPayout,
-            bool    isUsdcBet,
-            uint256 usdcPaid
-        )
+        external view
+        returns (bool resolved, bool won, bool claimed, uint256 payout)
     {
         BetRecord memory bet = bets[betId];
-        return (
-            bet.resolved,
-            bet.won,
-            bet.claimed,
-            GridMath.computePayout(bet.tokenAmount, bet.multiplier),
-            bet.isUsdcBet,
-            bet.usdcPaid
-        );
+        return (bet.resolved, bet.won, bet.claimed,
+                GridMath.computePayout(bet.gridTokenAmount, bet.multiplier));
     }
 
     // ─── Internal ─────────────────────────────────────────────────────────────
@@ -615,29 +555,16 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         require(spot > 0, "price not available");
     }
 
-    /// @dev Apply market-hours bet limits. usdcEquiv is the bet value in USDC (6 dec).
-    function _applyBetLimits(
-        TokenConfig memory cfg,
-        uint256 usdcEquiv,
-        address token
-    ) internal view {
-        (
-            ,
-            bool isOpeningWindow,
-            ,
-            bool isAfterHours,
-            bool isWeekend
-        ) = priceFeed.getMarketState(token);
+    function _applyBetLimits(TokenConfig memory cfg, uint256 usdcEquiv, address token) internal view {
+        (, bool isOpeningWindow, , bool isAfterHours, bool isWeekend) = priceFeed.getMarketState(token);
 
         uint256 effectiveMin = cfg.minBetUsdc;
         uint256 effectiveMax = cfg.maxBetUsdc;
 
-        if (isWeekend) {
-            effectiveMax = 10e6;                   // $10 max on weekends
-        } else if (isAfterHours) {
-            effectiveMax = cfg.maxBetUsdc / 2;     // half max after hours
-        } else if (isOpeningWindow) {
-            effectiveMin = cfg.minBetUsdc * 3;     // 3x min during opening dislocation
+        if (isWeekend)         effectiveMax = 10 * USDC_DECIMALS;
+        else if (isAfterHours) effectiveMax = cfg.maxBetUsdc / 2;
+        else if (isOpeningWindow) {
+            effectiveMin = cfg.minBetUsdc * 3;
             effectiveMax = cfg.maxBetUsdc / 2;
         }
 
@@ -645,52 +572,52 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         require(usdcEquiv <= effectiveMax, "above max bet");
     }
 
-    /// @dev Compute multiplier, targetPrice, and expiryTs for a bet.
     function _computeBetParams(
         TokenConfig memory cfg,
-        int8    priceTicks,
-        uint8   timeBuckets,
-        uint256 spotPrice,
-        address token
+        int8 priceTicks, uint8 timeBuckets, uint256 spot, address token
     ) internal view returns (uint256 mult, uint256 targetPrice, uint256 expiryTs) {
         require(timeBuckets >= 1 && timeBuckets <= cfg.gridWidth, "invalid column");
-
-        (mult, , targetPrice, expiryTs) =
-            _computeBetParamsView(cfg, priceTicks, timeBuckets, spotPrice, token);
+        (mult, , targetPrice, expiryTs) = _computeBetParamsView(cfg, priceTicks, timeBuckets, spot, token);
     }
 
     function _computeBetParamsView(
         TokenConfig memory cfg,
-        int8    priceTicks,
-        uint8   timeBuckets,
-        uint256 spotPrice,
-        address token
+        int8 priceTicks, uint8 timeBuckets, uint256 spot, address token
     ) internal view returns (uint256 mult, uint256 probability, uint256 targetPrice, uint256 expiryTs) {
         uint256 absTicks = priceTicks > 0
             ? uint256(int256(priceTicks))
             : uint256(-int256(priceTicks));
 
         if (priceTicks > 0) {
-            targetPrice = spotPrice + absTicks * cfg.tickSizeUsdc;
+            targetPrice = spot + absTicks * cfg.tickSizeUsdc;
         } else {
-            uint256 downMove = absTicks * cfg.tickSizeUsdc;
-            require(downMove < spotPrice, "target below zero");
-            targetPrice = spotPrice - downMove;
+            uint256 down = absTicks * cfg.tickSizeUsdc;
+            require(down < spot, "target below zero");
+            targetPrice = spot - down;
         }
 
-        // Align expiry to bucket boundary
-        uint256 bucketStart = (block.timestamp / cfg.bucketSeconds) * cfg.bucketSeconds;
-        expiryTs = bucketStart + uint256(timeBuckets) * cfg.bucketSeconds;
+        expiryTs = (block.timestamp / cfg.bucketSeconds) * cfg.bucketSeconds
+                   + uint256(timeBuckets) * cfg.bucketSeconds;
 
-        (
-            bool isOpen,
-            bool isOpeningWindow,
-            bool isClosingWindow,
-            bool isAfterHours,
-            bool isWeekend
-        ) = priceFeed.getMarketState(token);
+        (, bool isOpeningWindow, bool isClosingWindow, bool isAfterHours, bool isWeekend)
+            = priceFeed.getMarketState(token);
+        (bool isOpen, , , ,) = priceFeed.getMarketState(token);
 
-        GridMath.VolatilityParams memory vp = GridMath.VolatilityParams({
+        (mult, probability) = GridMath.calculateMultiplier(
+            absTicks, timeBuckets, spot,
+            _buildVolParams(cfg),
+            GridMath.MarketState({
+                isOpen: isOpen, isOpeningWindow: isOpeningWindow,
+                isClosingWindow: isClosingWindow,
+                isAfterHours: isAfterHours, isWeekend: isWeekend
+            })
+        );
+    }
+
+    function _buildVolParams(TokenConfig memory cfg)
+        internal pure returns (GridMath.VolatilityParams memory)
+    {
+        return GridMath.VolatilityParams({
             annualVolBps:  cfg.annualVolBps,
             tickSizeUsdc:  cfg.tickSizeUsdc,
             bucketSeconds: cfg.bucketSeconds,
@@ -699,80 +626,49 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
             closeBoostBps: cfg.closeBoostBps,
             afterHoursBps: cfg.afterHoursBps
         });
-        GridMath.MarketState memory ms = GridMath.MarketState({
-            isOpen:          isOpen,
-            isOpeningWindow: isOpeningWindow,
-            isClosingWindow: isClosingWindow,
-            isAfterHours:    isAfterHours,
-            isWeekend:       isWeekend
-        });
-
-        (mult, probability) = GridMath.calculateMultiplier(absTicks, timeBuckets, spotPrice, vp, ms);
     }
 
-    /// @dev Risk controls: exposure cap and single-bet cap.
     function _checkExposure(
         address token,
-        TokenConfig memory cfg,
         uint256 expiryTs,
-        uint256 tokenAmount,
-        uint256 potentialPayout,
-        uint256 spotPrice
+        uint256 gtAmount,
+        uint256 potentialPayout
     ) internal view {
-        uint256 poolBalance = IERC20(token).balanceOf(address(this));
-        require(poolBalance > lockedForPayouts[token], "pool too small");
+        uint256 freeGT = _freePoolGT(token);
+        require(freeGT > 0, "pool empty");
+        require(potentialPayout <= (freeGT * 3000) / 10_000,   "exposure: single bet > 30% pool");
 
-        uint256 freePool = poolBalance - lockedForPayouts[token];
+        uint256 poolGT = GridToken(tokenConfigs[token].gridToken).balanceOf(address(this));
+        require(
+            bucketMaxPayout[token][expiryTs] + potentialPayout <= (poolGT * 3000) / 10_000,
+            "exposure: bucket > 30% pool"
+        );
 
-        // Single bet: potential payout <= 30% of free pool
-        require(potentialPayout <= (freePool * 3000) / 10_000, "exposure limit: single bet");
-
-        // Bucket exposure: total potential payouts in this bucket <= 30% of pool
-        uint256 newBucketPayout = bucketMaxPayout[token][expiryTs] + potentialPayout;
-        require(newBucketPayout <= (poolBalance * 3000) / 10_000, "exposure limit: bucket");
-
-        // Cell concentration: single bet <= 5% of pool
-        uint256 betUsdc = (tokenAmount * spotPrice) / SCALE;
-        uint256 poolUsdc = (poolBalance * spotPrice) / SCALE;
-        require(betUsdc <= poolUsdc / 20, "exposure limit: single bet 5%");
-
-        // suppress cfg unused warning
-        cfg.active;
+        // Single bet <= 5% of pool (in USDC terms, both sides are 1:1 so just compare GT)
+        require(gtAmount <= poolGT / 20, "exposure: single bet > 5% pool");
     }
 
-    function _freeBalance(address token) internal view returns (uint256) {
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        uint256 locked  = lockedForPayouts[token];
-        return balance > locked ? balance - locked : 0;
+    function _freePoolGT(address token) internal view returns (uint256) {
+        address gt  = tokenConfigs[token].gridToken;
+        if (gt == address(0)) return 0;
+        uint256 bal = GridToken(gt).balanceOf(address(this));
+        uint256 lkd = lockedGridTokens[token];
+        return bal > lkd ? bal - lkd : 0;
     }
 
     function _recordBet(
-        address player,
-        address token,
-        int8    priceTicks,
-        uint256 timeBuckets,
-        uint256 targetPrice,
-        uint256 expiryTs,
-        uint256 tokenAmount,
-        uint256 usdcPaid_,
-        uint256 mult,
-        bool    isUsdcBet_
+        address player, address token,
+        int8 priceTicks, uint256 timeBuckets,
+        uint256 targetPrice, uint256 expiryTs,
+        uint256 gtAmount, uint256 mult
     ) internal returns (uint256 betId) {
         betId = nextBetId++;
         bets[betId] = BetRecord({
-            player:      player,
-            token:       token,
-            priceTicks:  priceTicks,
-            timeBuckets: timeBuckets,
-            targetPrice: targetPrice,
-            expiryTs:    expiryTs,
-            tokenAmount: tokenAmount,
-            usdcPaid:    usdcPaid_,
-            multiplier:  mult,
-            isUsdcBet:   isUsdcBet_,
-            resolved:    false,
-            won:         false,
-            claimed:     false
+            player: player, token: token,
+            priceTicks: priceTicks, timeBuckets: timeBuckets,
+            targetPrice: targetPrice, expiryTs: expiryTs,
+            gridTokenAmount: gtAmount, multiplier: mult,
+            resolved: false, won: false, claimed: false
         });
     }
 }

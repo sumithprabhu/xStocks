@@ -30,6 +30,8 @@ export function MultiplierGrid({
 }: Props) {
   const [, setTick] = useState(0);
   const [hitKey, setHitKey] = useState<string | null>(null);
+  /** Random playable column — full column highlight (no full-row wash). */
+  const [spotlightCol, setSpotlightCol] = useState<number | null>(null);
   const prevHeadKeyRef = useRef<string>("");
 
   useEffect(() => {
@@ -44,6 +46,31 @@ export function MultiplierGrid({
   const headFloor = snakeHead.col;
   const maxPlay = maxSnakeCol(token);
   const numCols = gridWidth;
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    function scheduleNext() {
+      const delay = 1800 + Math.floor(Math.random() * 1600);
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        const playable = maxPlay + 1;
+        if (playable >= 1) {
+          setSpotlightCol(Math.floor(Math.random() * playable));
+        } else {
+          setSpotlightCol(null);
+        }
+        scheduleNext();
+      }, delay);
+    }
+
+    scheduleNext();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [maxPlay]);
 
   const driftX = useMotionValue(0);
   useEffect(() => {
@@ -158,7 +185,7 @@ export function MultiplierGrid({
               <div
                 key={`${snakeHead.floorGlobalCol}-${ci}`}
                 style={{ width: cellW }}
-                className={`shrink-0 flex items-center justify-center text-[10px] font-mono tabular-nums tracking-tight ${
+                className={`shrink-0 flex items-center justify-center text-[11px] font-mono tabular-nums tracking-tight ${
                   isNow
                     ? "text-[#ff3b8d] font-semibold"
                     : isPast
@@ -166,7 +193,9 @@ export function MultiplierGrid({
                       : reserved
                         ? "text-zinc-600"
                         : "text-zinc-400"
-                } ${isNow ? "bg-[#ff3b8d]/[0.08]" : ""}`}
+                } ${isNow ? "bg-[#ff3b8d]/[0.08]" : ""} ${
+                  spotlightCol === ci ? "grid-header-col-spotlight" : ""
+                }`}
                 title={`Target horizon ${label}`}
               >
                 {reserved ? "—" : label}
@@ -187,14 +216,14 @@ export function MultiplierGrid({
                   isGap
                     ? "border-b border-[#ff3b8d]/10"
                     : "border-b border-[#141c2e]"
-                } ${isActive ? "price-row-active" : ""}`}
+                }`}
               >
                 <div
                   className={`w-[52px] shrink-0 flex items-center justify-end pr-2 transition-colors duration-300 ${
-                    isActive ? "text-[#ff3b8d]" : "text-zinc-600"
+                    isActive ? "text-zinc-300 font-medium" : "text-zinc-600"
                   }`}
                 >
-                  <span className="text-[10px] font-mono tabular-nums">
+                  <span className="text-[11px] font-mono tabular-nums">
                     {price.toFixed(2)}
                   </span>
                 </div>
@@ -205,10 +234,11 @@ export function MultiplierGrid({
                   const reserved = ci > maxPlay;
                   const canBet = !reserved && ci > headFloor;
 
-                  const stepsAhead = Math.max(1, ci - headFloor);
+                  /** Distance from snake column so multipliers stay visible in past/now/future (not just "—"). */
+                  const timeBucketsForLabel = Math.max(1, Math.abs(ci - headFloor));
                   const mult = calculateMultiplier(
                     absRow,
-                    stepsAhead,
+                    timeBucketsForLabel,
                     houseEdgeBps
                   );
 
@@ -221,6 +251,8 @@ export function MultiplierGrid({
                   const isBodyHere =
                     !isHeadHere && snakeBodyAtCell.has(snakeKey);
                   const isHitFlash = snakeKey === hitKey;
+                  const isColumnSpotlight =
+                    spotlightCol !== null && spotlightCol === ci;
 
                   return (
                     <motion.button
@@ -238,9 +270,11 @@ export function MultiplierGrid({
                         handleClick(e, signedRow, ci, canBet)
                       }
                       className={`shrink-0 grid-cell flex items-center justify-center border-l border-[#141c2e] relative cursor-pointer ${
-                        !canBet ? "opacity-40 cursor-default" : ""
+                        !canBet ? "cursor-default" : ""
                       } ${isPast ? "cell-past" : ""} ${
                         isNow ? "cell-now" : ""
+                      } ${
+                        isColumnSpotlight ? "cell-column-spotlight" : ""
                       } ${
                         ci <= maxPlay && !reserved
                           ? "cell-snake-zone"
@@ -253,9 +287,7 @@ export function MultiplierGrid({
                             : state === "lost"
                               ? "cell-lost"
                               : ""
-                      } ${isHitFlash ? "cell-bet-hit" : ""} ${
-                        isActive ? "row-glow" : ""
-                      }`}
+                      } ${isHitFlash ? "cell-bet-hit" : ""}`}
                     >
                       {isBodyHere && (
                         <span
@@ -288,7 +320,7 @@ export function MultiplierGrid({
                         </div>
                       ) : (
                         <span className="cell-label relative z-[2]">
-                          {reserved ? "×" : canBet ? formatMult(mult) : "—"}
+                          {reserved ? "×" : formatMult(mult)}
                         </span>
                       )}
                     </motion.button>

@@ -27,7 +27,7 @@ export function usePriceEngine(token: TokenConfig) {
     lastPriceRef.current = token.basePrice;
   }, [token.symbol, token.basePrice]);
 
-  // Poll the xStocks API
+  // Poll the price API
   useEffect(() => {
     let cancelled = false;
 

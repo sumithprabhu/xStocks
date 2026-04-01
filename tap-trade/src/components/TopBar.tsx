@@ -30,7 +30,7 @@ export function TopBar({
             className="text-left group"
           >
             <span className="font-logo text-[1.75rem] leading-none text-[#ff3b8d] drop-shadow-[0_0_18px_rgba(255,59,141,0.45)]">
-              xStocks
+              xGrid
             </span>
             <ChevronDown
               size={14}
