@@ -1,30 +1,45 @@
 import confetti from "canvas-confetti";
 
 export function celebrateWin(): void {
-  const pink = ["#ff3b8d", "#fda4d4", "#ffffff"];
+  const mint = ["#34d399", "#6ee7b7", "#a7f3d0", "#fef08a", "#fde047"];
+  const pink = ["#ff3b8d", "#fda4d4"];
+
   void confetti({
-    particleCount: 130,
-    spread: 72,
-    origin: { y: 0.62 },
-    colors: pink,
-    ticks: 220,
-    gravity: 1.05,
-    scalar: 0.95,
+    particleCount: 100,
+    spread: 64,
+    origin: { y: 0.58, x: 0.5 },
+    colors: mint,
+    ticks: 240,
+    gravity: 0.95,
+    scalar: 1,
+    startVelocity: 38,
   });
+
   window.setTimeout(() => {
     void confetti({
-      particleCount: 55,
-      angle: 60,
-      spread: 55,
-      origin: { x: 0, y: 0.65 },
-      colors: pink,
+      particleCount: 45,
+      angle: 55,
+      spread: 50,
+      origin: { x: 0.12, y: 0.62 },
+      colors: mint,
     });
     void confetti({
-      particleCount: 55,
-      angle: 120,
-      spread: 55,
-      origin: { x: 1, y: 0.65 },
+      particleCount: 45,
+      angle: 125,
+      spread: 50,
+      origin: { x: 0.88, y: 0.62 },
       colors: pink,
     });
-  }, 140);
+  }, 120);
+
+  window.setTimeout(() => {
+    void confetti({
+      particleCount: 70,
+      spread: 100,
+      origin: { y: 0.35 },
+      colors: mint,
+      scalar: 0.85,
+      drift: 0.05,
+    });
+  }, 280);
 }

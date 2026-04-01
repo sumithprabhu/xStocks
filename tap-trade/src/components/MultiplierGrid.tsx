@@ -79,19 +79,6 @@ export function MultiplierGrid({
     };
   }, [maxPlay]);
 
-  /** Time → horizontal slide (treadmill); spring smooths frame-to-frame updates */
-  const targetX = useMotionValue(0);
-  const springX = useSpring(targetX, {
-    stiffness: 140,
-    damping: 26,
-    mass: 0.55,
-  });
-  useEffect(() => {
-    const m = Math.max(0.001, maxPlay);
-    const pxPerPhase = 52;
-    targetX.set(-(snakeHead.colFloat / m) * pxPerPhase);
-  }, [snakeHead.colFloat, maxPlay, targetX]);
-
   /** Price within tick → vertical micro-shift (rows track live quote) */
   const rowsAreaRef = useRef<HTMLDivElement>(null);
   const [rowHeightPx, setRowHeightPx] = useState(36);
@@ -203,10 +190,22 @@ export function MultiplierGrid({
 
   return (
     <div className="h-full flex flex-col select-none overflow-hidden">
-      <motion.div
-        className="multiplier-grid-drift flex-1 flex flex-col min-w-[720px] will-change-transform"
-        style={{ x: springX, y: springY }}
-      >
+      <p className="shrink-0 px-2 py-1 text-center text-[10px] font-medium tracking-wide text-zinc-500 border-b border-[#141c2e]/60 bg-[#080c14]/80">
+        <span className="text-zinc-400">Chart</span>
+        <span className="mx-1.5 text-[#ff3b8d]/90">→</span>
+        <span className="text-emerald-400/90">meets</span>
+        <span className="mx-1.5 text-zinc-400">LIVE</span>
+        <span className="text-zinc-600">·</span>
+        <span className="ml-1.5 text-emerald-500/80">
+          Tap green · board wraps like a cylinder
+        </span>
+      </p>
+      <div className="grid-cylinder-shell flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
+        <motion.div
+          className="flex-1 flex flex-col min-h-0 min-w-0 will-change-transform"
+          style={{ y: springY }}
+        >
+          <div className="grid-cylinder-inner multiplier-grid-drift flex h-full min-h-0 flex-col min-w-[720px]">
         <motion.div
           key={snakeHead.floorGlobalCol}
           initial={{ opacity: 0.82, x: 6 }}
@@ -214,7 +213,7 @@ export function MultiplierGrid({
           transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
           className="flex h-10 shrink-0 border-b border-[#1e293b] bg-[#0c101c]/95"
         >
-          <div className="w-[52px] shrink-0 border-r border-[#1e293b]/90" />
+          <div className="w-[52px] shrink-0 border-r border-[#1e293b]/90 relative z-[2] bg-[#0c101c]/95" />
           {Array.from({ length: numCols }, (_, ci) => {
             const isPast = ci < headFloor;
             const isNow = ci === headFloor;
@@ -412,7 +411,9 @@ export function MultiplierGrid({
             );
           })}
         </div>
-      </motion.div>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }

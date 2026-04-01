@@ -142,34 +142,82 @@ body {
   background: rgba(255, 59, 141, 0.45);
 }
 
-/* ── Won — pink pulse then settle ── */
+/* ── Win — phased gold → mint (reward), then calm green ── */
 .grid-cell.cell-won {
-  animation: cellWin 1.2s ease-out forwards;
+  animation: cellWinPhased 1.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
-@keyframes cellWin {
-  0%   { background: rgba(255, 59, 141, 0.35); box-shadow: inset 0 0 0 2px rgba(255, 59, 141, 0.9), 0 0 22px rgba(255, 59, 141, 0.35); }
-  40%  { background: rgba(255, 59, 141, 0.2); box-shadow: inset 0 0 0 1px rgba(255, 59, 141, 0.5), 0 0 10px rgba(255, 59, 141, 0.15); }
-  100% { background: rgba(255, 59, 141, 0.06); box-shadow: none; }
+@keyframes cellWinPhased {
+  0% {
+    background: rgba(253, 224, 71, 0.35);
+    box-shadow:
+      inset 0 0 0 2px rgba(250, 204, 21, 0.95),
+      0 0 28px rgba(52, 211, 153, 0.45);
+  }
+  18% {
+    background: rgba(52, 211, 153, 0.42);
+    box-shadow:
+      inset 0 0 0 3px rgba(16, 185, 129, 0.9),
+      0 0 36px rgba(52, 211, 153, 0.55);
+  }
+  45% {
+    background: rgba(16, 185, 129, 0.22);
+    box-shadow:
+      inset 0 0 0 2px rgba(52, 211, 153, 0.65),
+      0 0 18px rgba(52, 211, 153, 0.25);
+  }
+  100% {
+    background: rgba(6, 78, 59, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
+  }
 }
 .grid-cell.cell-won .cell-label {
-  color: #fda4d4;
+  color: #d1fae5;
 }
 
-/* ── Lost — red flash then fade ── */
+/* ── Loss — rose sting + neutral settle ── */
 .grid-cell.cell-lost {
-  animation: cellLose 1s ease-out forwards;
+  animation: cellLosePhased 1.15s cubic-bezier(0.36, 0, 0.66, 1) forwards;
 }
-@keyframes cellLose {
-  0%   { background: rgba(239, 68, 68, 0.3); box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.4); }
-  30%  { background: rgba(239, 68, 68, 0.15); }
-  100% { background: transparent; box-shadow: none; }
+@keyframes cellLosePhased {
+  0% {
+    background: rgba(251, 113, 133, 0.4);
+    box-shadow:
+      inset 0 0 0 2px rgba(244, 63, 94, 0.85),
+      0 0 20px rgba(244, 63, 94, 0.25);
+    transform: translateX(0);
+  }
+  8% {
+    transform: translateX(-4px);
+  }
+  16% {
+    transform: translateX(4px);
+  }
+  24% {
+    transform: translateX(-2px);
+  }
+  32% {
+    transform: translateX(0);
+  }
+  55% {
+    background: rgba(127, 29, 29, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.35);
+  }
+  100% {
+    background: rgba(30, 27, 35, 0.5);
+    box-shadow: none;
+    transform: translateX(0);
+  }
 }
 .grid-cell.cell-lost .cell-label {
-  animation: labelFade 1s ease-out forwards;
+  animation: labelLoseFade 1.15s ease-out forwards;
 }
-@keyframes labelFade {
-  0%   { color: rgba(239, 68, 68, 0.7); }
-  100% { color: rgba(16, 185, 129, 0.25); }
+@keyframes labelLoseFade {
+  0% {
+    color: rgba(254, 205, 211, 0.95);
+  }
+  100% {
+    color: rgba(161, 161, 170, 0.45);
+  }
 }
 
 /* ── Click flash ── */
@@ -195,7 +243,9 @@ body {
 .dot-bl { bottom: 3px; left: 3px; }
 .dot-br { bottom: 3px; right: 3px; }
 
-.grid-cell:hover .dot { background: rgba(255, 59, 141, 0.35); }
+.grid-cell.cell-playable:hover:not(:disabled) .dot {
+  background: rgba(52, 211, 153, 0.45);
+}
 
 /* ── Multiplier text ── */
 .cell-label {
@@ -207,9 +257,9 @@ body {
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-.grid-cell:hover .cell-label {
-  color: rgba(226, 232, 240, 0.75);
-  transform: scale(1.06);
+.grid-cell.cell-playable:hover:not(:disabled) .cell-label {
+  color: rgba(226, 232, 240, 0.85);
+  transform: scale(1.05);
 }
 
 /* ── Inline bet tile inside grid cell ── */
@@ -256,31 +306,72 @@ body {
   color: rgba(253, 164, 212, 0.55);
 }
 
-/* Moving grid: faint column guides (8 logical cols ≈ 12.5% each) */
-.multiplier-grid-drift {
-  background-image: repeating-linear-gradient(
-    90deg,
-    transparent 0,
-    transparent calc(12.5% - 1px),
-    rgba(255, 59, 141, 0.065) calc(12.5% - 1px),
-    rgba(255, 59, 141, 0.065) 12.5%
-  );
+/* Cylinder stage: perspective on shell, curved surface on inner (no sliding BG) */
+.grid-cylinder-shell {
+  perspective: 1180px;
+  perspective-origin: 14% 50%;
+  padding-left: 6px;
 }
 
-.grid-rows-parallax::before {
+.grid-cylinder-inner {
+  position: relative;
+  transform-origin: left center;
+  transform: rotateY(11deg) rotateX(1.25deg);
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  background: rgba(8, 12, 22, 0.55);
+  border-radius: 0 14px 14px 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 59, 141, 0.06),
+    -6px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Static shading: far side of cylinder reads darker (wraps away from you) */
+.grid-cylinder-inner::after {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 6;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 0,
-    transparent 30px,
-    rgba(255, 255, 255, 0.038) 30px,
-    rgba(255, 255, 255, 0.038) 31px
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    transparent 16%,
+    transparent 38%,
+    rgba(0, 0, 0, 0.14) 68%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+}
+
+/* Chart-adjacent seam: static mint/pink hint (no animation) */
+.grid-cylinder-inner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(52, 211, 153, 0.35) 42%,
+    rgba(255, 59, 141, 0.22) 58%,
+    transparent 100%
   );
   opacity: 0.85;
+}
+
+/* Grid content: no moving line texture — borders come from cells only */
+.multiplier-grid-drift {
+  position: relative;
+}
+
+.grid-rows-parallax::before {
+  display: none;
 }
 
 .grid-rows-parallax > * {
@@ -295,11 +386,18 @@ body {
 .grid-cell.cell-past .cell-label {
   color: rgba(186, 198, 214, 0.5);
 }
+/* LIVE column: chart-side mint rim + pink body = intersection read */
 .grid-cell.cell-now {
   box-shadow:
-    inset 0 0 0 2px rgba(255, 59, 141, 0.45),
-    inset 0 0 12px rgba(255, 59, 141, 0.08);
-  background: rgba(255, 59, 141, 0.06);
+    inset 4px 0 0 rgba(52, 211, 153, 0.55),
+    inset 0 0 0 2px rgba(255, 59, 141, 0.5),
+    inset 0 0 16px rgba(255, 59, 141, 0.1);
+  background: linear-gradient(
+    90deg,
+    rgba(52, 211, 153, 0.08) 0%,
+    rgba(255, 59, 141, 0.07) 35%,
+    rgba(255, 59, 141, 0.04) 100%
+  );
   transition:
     box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     background 0.45s ease;
@@ -399,13 +497,22 @@ body {
 }
 
 .grid-cell.cell-bet-hit {
-  animation: cellBetHit 0.85s ease-out;
+  animation: cellBetHit 0.95s cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes cellBetHit {
   0% {
-    box-shadow: inset 0 0 0 2px rgba(255, 59, 141, 0.95),
-      0 0 24px rgba(255, 59, 141, 0.45);
-    background: rgba(255, 59, 141, 0.18);
+    box-shadow:
+      inset 3px 0 0 rgba(52, 211, 153, 0.85),
+      inset 0 0 0 2px rgba(255, 59, 141, 0.95),
+      0 0 28px rgba(255, 59, 141, 0.5);
+    background: rgba(255, 59, 141, 0.2);
+  }
+  40% {
+    box-shadow:
+      inset 2px 0 0 rgba(52, 211, 153, 0.5),
+      inset 0 0 0 2px rgba(255, 59, 141, 0.65),
+      0 0 18px rgba(255, 59, 141, 0.25);
+    background: rgba(255, 59, 141, 0.1);
   }
   100% {
     box-shadow: inset 0 0 0 1px rgba(255, 59, 141, 0.2);
@@ -427,4 +534,40 @@ body {
 .grid-fade-left {
   mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.25) 10%, black 24%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.25) 10%, black 24%);
+}
+
+/* Price arrow: glow + nudge toward grid (glyph only — parent keeps layout) */
+@keyframes arrowMeetPulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 8px rgba(255, 59, 141, 0.75));
+    transform: scale(1) translateX(0);
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(255, 59, 141, 0.95));
+    transform: scale(1.07) translateX(2px);
+  }
+}
+
+.chart-arrow-glyph {
+  will-change: filter, transform;
+  animation: arrowMeetPulse 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-arrow-glyph {
+    animation: none;
+  }
+  .grid-cylinder-inner {
+    transform: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 59, 141, 0.06);
+  }
+  .grid-cell.cell-won,
+  .grid-cell.cell-lost,
+  .grid-cell.cell-bet-hit {
+    animation: none;
+  }
+  .grid-cell.cell-lost .cell-label {
+    animation: none;
+  }
 }
