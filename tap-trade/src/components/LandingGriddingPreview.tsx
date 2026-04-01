@@ -1,4 +1,5 @@
-import { ChartGridSplit } from "./ChartGridSplit";
+import { useLayoutEffect, useRef, useState } from "react";
+import { MultiplierGrid } from "./MultiplierGrid";
 import { useSyntheticPriceSequence } from "../hooks/useSyntheticPriceSequence";
 import { useSnakeTrail } from "../hooks/useSnakeTrail";
 import { TOKENS } from "../lib/constants";
@@ -6,13 +7,21 @@ import { formatPrice } from "../lib/format";
 
 const PREVIEW_TOKEN = TOKENS[0]!;
 
-/**
- * Demo preview of the gridding screen (chart + arrow + grid) for the landing hero.
- * Uses local synthetic prices (no API). Symbol/price row matches `TopBar`.
- */
 export function LandingGriddingPreview() {
-  const { currentPrice, history } = useSyntheticPriceSequence(PREVIEW_TOKEN);
+  const { currentPrice } = useSyntheticPriceSequence(PREVIEW_TOKEN);
   const { head, trail } = useSnakeTrail(PREVIEW_TOKEN, currentPrice);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [anchorX, setAnchorX] = useState(200);
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const m = () => setAnchorX(Math.floor(el.clientWidth * 0.38));
+    m();
+    const ro = new ResizeObserver(m);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   return (
     <div
@@ -29,15 +38,15 @@ export function LandingGriddingPreview() {
         </p>
       </div>
 
-      <div className="relative flex-1 min-h-0 pointer-events-none select-none">
-        <ChartGridSplit
+      <div ref={containerRef} className="relative flex-1 min-h-0 pointer-events-none select-none">
+        <MultiplierGrid
           token={PREVIEW_TOKEN}
           currentPrice={currentPrice}
-          history={history}
-          head={head}
-          trail={trail}
-          bets={[]}
           betSize={10}
+          bets={[]}
+          snakeHead={head}
+          snakeTrail={trail}
+          anchorX={anchorX}
           onCellClick={() => {}}
         />
       </div>

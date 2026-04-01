@@ -26,6 +26,7 @@ export function useBets(
       const { tickSize, houseEdgeBps } = token;
       const h = headRef.current;
 
+      // Must be ahead of the head
       const stepsAhead = globalCol - h.globalCol;
       if (stepsAhead <= 0) return;
       if (size > balance) return;
@@ -39,15 +40,13 @@ export function useBets(
 
       const bet: Bet = {
         id: `bet-${++betSeq}`,
-        tokenSymbol: token.symbol,
         row: signedRow,
-        targetCol: globalCol, // absolute global column
+        targetCol: globalCol,  // now stores the absolute global column
         col: stepsAhead,
         priceLevel,
         amount: size,
         multiplier: mult,
         placedAt: Date.now(),
-        expiresAt: Date.now() + 120_000,
         status: "active",
         pnl: 0,
       };
@@ -58,7 +57,7 @@ export function useBets(
     [token, currentPrice, balance]
   );
 
-  // Resolve bets as snake advances (column-based, not time-based)
+  // Resolve bets as snake advances
   useEffect(() => {
     const effectiveCol = Math.floor(
       Math.max(0, head.globalPhase - SNAKE_COLUMN_HIT_LAG)
@@ -68,26 +67,19 @@ export function useBets(
       let changed = false;
       const next = prev.map((b) => {
         if (b.status !== "active") return b;
+        // bet.targetCol is the absolute global column
         if (effectiveCol < b.targetCol) return b;
 
         changed = true;
         const won = head.signedRow === b.row;
         const pnl = won ? b.amount * b.multiplier - b.amount : -b.amount;
-        return {
-          ...b,
-          status: won ? ("won" as const) : ("lost" as const),
-          pnl,
-        };
+        return { ...b, status: won ? ("won" as const) : ("lost" as const), pnl };
       });
 
       if (!changed) return prev;
 
       const newWinnings = next
-        .filter(
-          (b) =>
-            b.status === "won" &&
-            prev.find((p) => p.id === b.id)?.status === "active"
-        )
+        .filter((b) => b.status === "won" && prev.find((p) => p.id === b.id)?.status === "active")
         .reduce((sum, b) => sum + b.amount * b.multiplier, 0);
       if (newWinnings > 0) setBalance((bal) => bal + newWinnings);
 

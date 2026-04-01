@@ -10,7 +10,7 @@
   font-family: var(--font-logo);
 }
 
-*, *::before, *::after { scrollbar-width: none; }
+*, *::before, *::after { scrollbar-width: none; box-sizing: border-box; }
 *::-webkit-scrollbar { display: none; }
 
 body {
@@ -21,519 +21,163 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* chart.win-style dot grid behind chart */
-.chart-dot-bg {
-  background-color: #0a0e1a;
+/* ═══════════════════════════════════════════
+   DOT GRID BACKGROUND (behind everything)
+   ═══════════════════════════════════════════ */
+
+.bg-\[\#0a0e1a\]::before,
+.bg-\[\#080c14\]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   background-image: radial-gradient(
-    rgba(255, 59, 141, 0.07) 1px,
+    rgba(255, 59, 141, 0.04) 1px,
     transparent 1px
   );
   background-size: 14px 14px;
-}
-
-/* Betting panel: corner gradients like reference */
-.grid-gradient-overlay {
-  background:
-    radial-gradient(ellipse 80% 70% at 100% 0%, rgba(34, 197, 94, 0.14), transparent 55%),
-    radial-gradient(ellipse 70% 60% at 100% 100%, rgba(234, 179, 8, 0.12), transparent 50%),
-    radial-gradient(ellipse 50% 50% at 0% 50%, rgba(59, 130, 246, 0.06), transparent 45%);
   pointer-events: none;
 }
 
-/* ── Bet tile enter ── */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
+/* ═══════════════════════════════════════════
+   CORNER DOTS (grid cells)
+   ═══════════════════════════════════════════ */
 
-/* ── Grid cells ── */
-
-.grid-cell {
-  transition:
-    background 0.18s ease,
-    box-shadow 0.22s ease,
-    border-color 0.2s ease,
-    opacity 0.2s ease;
-  background: transparent;
-}
-
-.grid-cell.cell-playable:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
-}
-
-.grid-cell.cell-playable:focus-visible {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 2px rgba(52, 211, 153, 0.55),
-    0 0 0 2px rgba(10, 14, 26, 0.95),
-    0 0 14px rgba(52, 211, 153, 0.25);
-}
-
-.grid-cell.cell-playable:active:not(:disabled) {
-  background: rgba(16, 185, 129, 0.16);
-}
-
-/* Locked: past, snake column, or off-market strip */
-.grid-cell.cell-locked {
-  pointer-events: none;
-  user-select: none;
-  opacity: 0.88;
-}
-
-.grid-cell.cell-locked.cell-past,
-.grid-cell.cell-locked.cell-now:not(.cell-col-off) {
-  opacity: 0.9;
-}
-
-.grid-cell.cell-col-off {
-  opacity: 0.42;
-  background: repeating-linear-gradient(
-    -32deg,
-    rgba(15, 23, 42, 0.92),
-    rgba(15, 23, 42, 0.92) 5px,
-    rgba(30, 41, 59, 0.85) 5px,
-    rgba(30, 41, 59, 0.85) 10px
-  ) !important;
-  box-shadow: inset 2px 0 0 rgba(239, 68, 68, 0.35);
-}
-
-.grid-cell.cell-col-off .cell-label,
-.grid-cell.cell-col-off .dot {
-  opacity: 0.5;
-}
-
-/* Playable band: clear left/right frame */
-.grid-cell.cell-play-band-start {
-  box-shadow:
-    inset 2px 0 0 rgba(52, 211, 153, 0.75),
-    inset 0 0 0 1px rgba(52, 211, 153, 0.12);
-  background: rgba(16, 185, 129, 0.05);
-}
-
-.grid-cell.cell-play-band-end {
-  box-shadow:
-    inset -2px 0 0 rgba(52, 211, 153, 0.55),
-    inset 0 0 0 1px rgba(52, 211, 153, 0.1);
-}
-
-.grid-cell.cell-playable.cell-play-band-start:hover:not(:disabled) {
-  box-shadow:
-    inset 2px 0 0 rgba(52, 211, 153, 0.9),
-    inset 0 0 0 1px rgba(52, 211, 153, 0.35);
-}
-
-/* ── Active bet — neon pink border (chart.win) ── */
-.grid-cell.has-bet {
-  background: rgba(255, 59, 141, 0.12);
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 59, 141, 0.85),
-    0 0 14px rgba(255, 59, 141, 0.2);
-}
-
-.grid-cell.cell-locked.has-bet {
-  opacity: 1;
-}
-.grid-cell.has-bet .cell-label {
-  color: #fda4d4;
-  font-weight: 600;
-}
-.grid-cell.has-bet .dot {
-  background: rgba(255, 59, 141, 0.45);
-}
-
-/* ── Win — phased gold → mint (reward), then calm green ── */
-.grid-cell.cell-won {
-  animation: cellWinPhased 1.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-@keyframes cellWinPhased {
-  0% {
-    background: rgba(253, 224, 71, 0.35);
-    box-shadow:
-      inset 0 0 0 2px rgba(250, 204, 21, 0.95),
-      0 0 28px rgba(52, 211, 153, 0.45);
-  }
-  18% {
-    background: rgba(52, 211, 153, 0.42);
-    box-shadow:
-      inset 0 0 0 3px rgba(16, 185, 129, 0.9),
-      0 0 36px rgba(52, 211, 153, 0.55);
-  }
-  45% {
-    background: rgba(16, 185, 129, 0.22);
-    box-shadow:
-      inset 0 0 0 2px rgba(52, 211, 153, 0.65),
-      0 0 18px rgba(52, 211, 153, 0.25);
-  }
-  100% {
-    background: rgba(6, 78, 59, 0.22);
-    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
-  }
-}
-.grid-cell.cell-won .cell-label {
-  color: #d1fae5;
-}
-
-/* ── Loss — rose sting + neutral settle ── */
-.grid-cell.cell-lost {
-  animation: cellLosePhased 1.15s cubic-bezier(0.36, 0, 0.66, 1) forwards;
-}
-@keyframes cellLosePhased {
-  0% {
-    background: rgba(251, 113, 133, 0.4);
-    box-shadow:
-      inset 0 0 0 2px rgba(244, 63, 94, 0.85),
-      0 0 20px rgba(244, 63, 94, 0.25);
-    transform: translateX(0);
-  }
-  8% {
-    transform: translateX(-4px);
-  }
-  16% {
-    transform: translateX(4px);
-  }
-  24% {
-    transform: translateX(-2px);
-  }
-  32% {
-    transform: translateX(0);
-  }
-  55% {
-    background: rgba(127, 29, 29, 0.2);
-    box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.35);
-  }
-  100% {
-    background: rgba(30, 27, 35, 0.5);
-    box-shadow: none;
-    transform: translateX(0);
-  }
-}
-.grid-cell.cell-lost .cell-label {
-  animation: labelLoseFade 1.15s ease-out forwards;
-}
-@keyframes labelLoseFade {
-  0% {
-    color: rgba(254, 205, 211, 0.95);
-  }
-  100% {
-    color: rgba(161, 161, 170, 0.45);
-  }
-}
-
-/* ── Click flash ── */
-.grid-cell.cell-flash {
-  animation: cellFlash 0.35s ease-out;
-}
-@keyframes cellFlash {
-  0%   { background: rgba(255, 59, 141, 0.35); }
-  100% { background: rgba(255, 59, 141, 0.14); }
-}
-
-/* ── Corner dots ── */
 .dot {
   position: absolute;
-  width: 3px;
-  height: 3px;
+  width: 2.5px;
+  height: 2.5px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  transition: background 100ms ease;
+  background: rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+  transition: background 120ms ease;
 }
 .dot-tl { top: 3px; left: 3px; }
 .dot-tr { top: 3px; right: 3px; }
 .dot-bl { bottom: 3px; left: 3px; }
 .dot-br { bottom: 3px; right: 3px; }
 
-.grid-cell.cell-playable:hover:not(:disabled) .dot {
-  background: rgba(52, 211, 153, 0.45);
+button:hover .dot {
+  background: rgba(255, 59, 141, 0.25);
 }
 
-/* ── Multiplier text ── */
+/* ═══════════════════════════════════════════
+   MULTIPLIER TEXT IN CELLS
+   ═══════════════════════════════════════════ */
+
 .cell-label {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
-  color: rgba(203, 213, 225, 0.72);
-  transition: color 100ms ease, transform 100ms ease;
   font-variant-numeric: tabular-nums;
+  transition: color 100ms ease, transform 80ms ease;
   pointer-events: none;
 }
-.grid-cell.cell-playable:hover:not(:disabled) .cell-label {
-  color: rgba(226, 232, 240, 0.85);
-  transform: scale(1.05);
+
+button:hover .cell-label {
+  transform: scale(1.06);
+  filter: brightness(1.3);
 }
 
-/* ── Inline bet tile inside grid cell ── */
-.bet-inline {
+/* ═══════════════════════════════════════════
+   BET CARDS (inside grid cells)
+   ═══════════════════════════════════════════ */
+
+.bet-card {
+  pointer-events: none;
   text-align: center;
-  pointer-events: none;
-  z-index: 2;
+  padding: 4px 10px 3px;
+  border-radius: 6px;
+  min-width: 54px;
+  border: 1.5px solid;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-.bet-amount {
+
+.bet-card-amount {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 12px;
-  font-weight: 600;
-  color: #e2e8f0;
-  line-height: 1.2;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-shadow: 0 0 10px rgba(255, 59, 141, 0.25);
 }
-.bet-mult {
+
+.bet-card-mult {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 500;
-  color: rgba(16, 185, 129, 0.6);
   line-height: 1.2;
-}
-.cell-won .bet-amount { color: #86efac; }
-.cell-won .bet-mult { color: rgba(134, 239, 172, 0.8); }
-.cell-lost .bet-amount { color: #f87171; text-decoration: line-through; }
-.cell-lost .bet-mult { color: rgba(239, 68, 68, 0.5); }
-
-.bet-compact .bet-amount {
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-  text-shadow: 0 0 8px rgba(255, 59, 141, 0.35);
+  margin-top: 1px;
+  text-transform: uppercase;
 }
 
-/* ── Active price row (smooth handoff as quote moves) ── */
-.price-row-active {
-  background: rgba(255, 59, 141, 0.065);
-  box-shadow: inset 0 0 18px rgba(255, 59, 141, 0.06);
-  transition:
-    background 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.55s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.price-row-active .cell-label {
-  color: rgba(253, 164, 212, 0.55);
+/* ═══════════════════════════════════════════
+   HIT FLASH (when snake crosses a bet cell)
+   ═══════════════════════════════════════════ */
+
+.grid-cell-hit {
+  animation: cellHitFlash 0.9s ease-out;
 }
 
-/* Cylinder stage: perspective on shell, curved surface on inner (no sliding BG) */
-.grid-cylinder-shell {
-  perspective: 1180px;
-  perspective-origin: 14% 50%;
-  padding-left: 6px;
-}
-
-.grid-cylinder-inner {
-  position: relative;
-  transform-origin: left center;
-  transform: rotateY(11deg) rotateX(1.25deg);
-  transform-style: preserve-3d;
-  backface-visibility: hidden;
-  background: rgba(8, 12, 22, 0.55);
-  border-radius: 0 14px 14px 0;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 59, 141, 0.06),
-    -6px 0 24px rgba(0, 0, 0, 0.35);
-}
-
-/* Static shading: far side of cylinder reads darker (wraps away from you) */
-.grid-cylinder-inner::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.045) 0%,
-    transparent 16%,
-    transparent 38%,
-    rgba(0, 0, 0, 0.14) 68%,
-    rgba(0, 0, 0, 0.4) 100%
-  );
-}
-
-/* Chart-adjacent seam: static mint/pink hint (no animation) */
-.grid-cylinder-inner::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  z-index: 5;
-  pointer-events: none;
-  border-radius: 0 2px 2px 0;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(52, 211, 153, 0.35) 42%,
-    rgba(255, 59, 141, 0.22) 58%,
-    transparent 100%
-  );
-  opacity: 0.85;
-}
-
-/* Grid content: no moving line texture — borders come from cells only */
-.multiplier-grid-drift {
-  position: relative;
-}
-
-.grid-rows-parallax::before {
-  display: none;
-}
-
-.grid-rows-parallax > * {
-  position: relative;
-  z-index: 1;
-}
-
-/* ── Time grid: past (left) vs now vs future ── */
-.grid-cell.cell-past {
-  background: rgba(255, 255, 255, 0.02);
-}
-.grid-cell.cell-past .cell-label {
-  color: rgba(186, 198, 214, 0.5);
-}
-/* LIVE column: chart-side mint rim + pink body = intersection read */
-.grid-cell.cell-now {
-  box-shadow:
-    inset 4px 0 0 rgba(52, 211, 153, 0.55),
-    inset 0 0 0 2px rgba(255, 59, 141, 0.5),
-    inset 0 0 16px rgba(255, 59, 141, 0.1);
-  background: linear-gradient(
-    90deg,
-    rgba(52, 211, 153, 0.08) 0%,
-    rgba(255, 59, 141, 0.07) 35%,
-    rgba(255, 59, 141, 0.04) 100%
-  );
-  transition:
-    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    background 0.45s ease;
-}
-
-/* Time header row — high contrast horizons */
-.grid-header-time {
-  min-height: 2.5rem;
-}
-
-.grid-header-time__label {
-  font-size: 0.8125rem;
-  line-height: 1.15;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-
-.grid-header-time--past .grid-header-time__label {
-  color: rgba(161, 161, 170, 0.92);
-  font-weight: 500;
-  font-size: 0.75rem;
-}
-
-.grid-header-time--now {
-  background: rgba(255, 59, 141, 0.16);
-  box-shadow: inset 0 -3px 0 rgba(255, 59, 141, 0.75);
-}
-
-.grid-header-time--now .grid-header-time__label {
-  color: #ffe4f0;
-  font-size: 0.9375rem;
-  font-weight: 700;
-  text-shadow: 0 0 16px rgba(255, 59, 141, 0.5);
-}
-
-.grid-header-time__pill {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  color: #0a0e1a;
-  background: linear-gradient(135deg, #ff8ec8, #ff3b8d);
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-.grid-header-time--play .grid-header-time__label {
-  color: rgba(241, 245, 249, 0.98);
-  font-size: 0.875rem;
-  font-weight: 700;
-}
-
-.grid-header-time--off {
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.grid-header-time--off .grid-header-time__label {
-  color: rgba(82, 82, 91, 0.75);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.grid-header-time--play-start {
-  box-shadow:
-    inset 2px 0 0 rgba(52, 211, 153, 0.7),
-    inset 0 -1px 0 rgba(52, 211, 153, 0.2);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.grid-header-time--play-end {
-  box-shadow: inset -2px 0 0 rgba(52, 211, 153, 0.5);
-}
-
-/* Random full-column spotlight (playable columns only) */
-.grid-cell.cell-column-spotlight {
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow:
-    inset 1px 0 0 rgba(255, 255, 255, 0.14),
-    inset -1px 0 0 rgba(255, 255, 255, 0.1);
-  transition:
-    background 0.45s ease,
-    box-shadow 0.45s ease;
-}
-
-.grid-header-col-spotlight {
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.14),
-    inset -1px 0 0 rgba(255, 255, 255, 0.1);
-}
-
-.grid-cell.cell-snake-zone {
-  background: rgba(255, 59, 141, 0.02);
-}
-
-.grid-cell.cell-reserved {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.grid-cell.cell-bet-hit {
-  animation: cellBetHit 0.95s cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes cellBetHit {
+@keyframes cellHitFlash {
   0% {
-    box-shadow:
-      inset 3px 0 0 rgba(52, 211, 153, 0.85),
-      inset 0 0 0 2px rgba(255, 59, 141, 0.95),
-      0 0 28px rgba(255, 59, 141, 0.5);
-    background: rgba(255, 59, 141, 0.2);
+    box-shadow: inset 0 0 0 2.5px rgba(255,59,141,1),
+      0 0 28px rgba(255,59,141,0.5),
+      0 0 56px rgba(255,59,141,0.15);
+    background: rgba(255,59,141,0.22);
   }
-  40% {
-    box-shadow:
-      inset 2px 0 0 rgba(52, 211, 153, 0.5),
-      inset 0 0 0 2px rgba(255, 59, 141, 0.65),
-      0 0 18px rgba(255, 59, 141, 0.25);
-    background: rgba(255, 59, 141, 0.1);
+  35% {
+    box-shadow: inset 0 0 0 1.5px rgba(255,59,141,0.6),
+      0 0 14px rgba(255,59,141,0.2);
+    background: rgba(255,59,141,0.1);
   }
   100% {
-    box-shadow: inset 0 0 0 1px rgba(255, 59, 141, 0.2);
+    box-shadow: none;
     background: transparent;
   }
 }
 
-/* Chart: fade old price path into dot field */
-.chart-trail-fade {
-  background: linear-gradient(
-    90deg,
-    #0a0e1a 0%,
-    rgba(10, 14, 26, 0.55) 45%,
-    transparent 100%
-  );
+/* ═══════════════════════════════════════════
+   HEAD DOT PULSE
+   ═══════════════════════════════════════════ */
+
+.head-dot-pulse {
+  animation: headPulse 2s ease-in-out infinite;
 }
 
-/* ── Left-edge fade into chart ── */
-.grid-fade-left {
-  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.25) 10%, black 24%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.25) 10%, black 24%);
+@keyframes headPulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* ═══════════════════════════════════════════
+   PERF HINTS
+   ═══════════════════════════════════════════ */
+
+.will-change-transform {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* ═══════════════════════════════════════════
+   LEGACY — kept for TopBar, BetDock, BetToast, LandingPage
+   ═══════════════════════════════════════════ */
+
+.chart-dot-bg {
+  background-color: #0a0e1a;
+  background-image: radial-gradient(rgba(255,59,141,0.07) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.bet-inline { text-align: center; pointer-events: none; z-index: 2; }
+.bet-amount {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 12px; font-weight: 600; color: #e2e8f0; line-height: 1.2;
+}
+.bet-compact .bet-amount {
+  font-size: 11px; font-weight: 600; color: #fff;
+  text-shadow: 0 0 8px rgba(255, 59, 141, 0.35);
 }
 
 /* Price arrow: glow + nudge toward grid (glyph only — parent keeps layout) */

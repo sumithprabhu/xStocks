@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { TokenConfig } from "../lib/types";
 import {
   SNAKE_SWEEP_MS,
-  SNAKE_TRAIL_MAX_SEGMENTS,
+  SNAKE_TRAIL_MAX,
   SNAKE_RIGHT_RESERVE,
 } from "../lib/constants";
 
@@ -29,14 +29,6 @@ export function useSnakeTrail(token: TokenConfig, currentPrice: number) {
   const prevCol = useRef(-1);
   const trailBuf = useRef<SnakeSegment[]>([]);
 
-  // Reset on token change
-  useEffect(() => {
-    startRef.current = Date.now();
-    prevCol.current = -1;
-    trailBuf.current = [];
-    setTrail([]);
-  }, [token.symbol]);
-
   useEffect(() => {
     const { gridWidth, gridHalfHeight, tickSize } = token;
     const colMs = SNAKE_SWEEP_MS / gridWidth;
@@ -58,10 +50,7 @@ export function useSnakeTrail(token: TokenConfig, currentPrice: number) {
 
       if (globalCol !== prevCol.current) {
         prevCol.current = globalCol;
-        trailBuf.current = [seg, ...trailBuf.current].slice(
-          0,
-          SNAKE_TRAIL_MAX_SEGMENTS
-        );
+        trailBuf.current = [seg, ...trailBuf.current].slice(0, SNAKE_TRAIL_MAX);
         setTrail([...trailBuf.current]);
       }
       setHead(seg);

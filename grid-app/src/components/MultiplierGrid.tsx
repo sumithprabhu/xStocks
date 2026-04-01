@@ -10,10 +10,9 @@ import { motion, useMotionValue, AnimatePresence } from "framer-motion";
 import type { TokenConfig, Bet, BetSize } from "../lib/types";
 import type { SnakeSegment } from "../hooks/useSnakeTrail";
 import { maxStepsAhead } from "../hooks/useSnakeTrail";
-import { SNAKE_COLUMN_HIT_LAG, GRID_TIME_HORIZONS_SEC } from "../lib/constants";
+import { SNAKE_COLUMN_HIT_LAG, TIME_HORIZONS } from "../lib/constants";
 import { calculateMultiplier } from "../lib/multiplier";
-import { formatMult, formatUsd, formatPnl } from "../lib/format";
-import { formatHorizonLabel } from "../lib/gridHorizons";
+import { formatMult, formatUsd, formatPnl, formatHorizon } from "../lib/format";
 
 interface Props {
   token: TokenConfig;
@@ -22,6 +21,7 @@ interface Props {
   bets: Bet[];
   snakeHead: SnakeSegment;
   snakeTrail: SnakeSegment[];
+  /** X pixel where the head dot is anchored (chart/grid boundary) */
   anchorX: number;
   onCellClick: (row: number, globalCol: number) => void;
   onSnakeHitBet?: (bet: Bet) => void;
@@ -59,11 +59,11 @@ export function MultiplierGrid({
   const rowH = Math.max(1, (cH - headerH) / totalRows);
   const maxAhead = maxStepsAhead(token);
 
-  // Cell width: ~8-9 columns fill area RIGHT of anchor
+  // Cell width sized so ~8-9 columns fill the area RIGHT of anchor
   const gridArea = cW - anchorX;
   const cellW = Math.max(64, gridArea / 8.5);
 
-  // Continuous head position
+  // ── Continuous head position ──
   const effectivePhase = snakeHead.globalPhase - SNAKE_COLUMN_HIT_LAG;
   const globalHead = Math.floor(Math.max(0, effectivePhase));
 
@@ -71,10 +71,13 @@ export function MultiplierGrid({
   const fracCol = effectivePhase - globalHead;
   const scrollX = useMotionValue(0);
   useLayoutEffect(() => {
+    // anchorX offset: column g=globalHead sits at anchorX
     scrollX.set(anchorX - fracCol * cellW);
   });
 
-  // Row data
+  // Grid rows stay fixed — only the head dot moves vertically
+
+  // ── Row data ──
   const center = Math.round(currentPrice / tickSize) * tickSize;
   const rowData = useMemo(() => {
     const out: { signedRow: number; absRow: number; price: number }[] = [];
@@ -101,13 +104,13 @@ export function MultiplierGrid({
     return best;
   }, [currentPrice, rowData]);
 
-  // Visible columns
-  const leftBuf = Math.ceil(anchorX / cellW) + 2;
+  // ── Visible columns: extend LEFT past anchor into chart area ──
+  const leftBuf = Math.ceil(anchorX / cellW) + 2;  // enough to fill chart area
   const rightBuf = Math.ceil((cW - anchorX) / cellW) + 3;
   const colStart = globalHead - leftBuf;
   const colEnd = globalHead + rightBuf;
 
-  // Bet lookup (keyed by row:globalCol)
+  // Bet lookup
   const cellBets = useMemo(() => {
     const m = new Map<string, Bet>();
     for (const b of bets) {
@@ -118,7 +121,7 @@ export function MultiplierGrid({
     return m;
   }, [bets]);
 
-  // Trail set (globalCol → signedRow)
+  // Trail set
   const trailSet = useMemo(() => {
     const s = new Map<number, number>();
     for (const seg of snakeTrail) s.set(seg.globalCol, seg.signedRow);
@@ -144,6 +147,7 @@ export function MultiplierGrid({
     [onCellClick]
   );
 
+  // Visible columns
   const visibleCols = useMemo(() => {
     const out: {
       g: number;
@@ -166,28 +170,28 @@ export function MultiplierGrid({
 
   return (
     <div ref={containerRef} className="absolute inset-0 select-none overflow-hidden">
-      {/* Scrolling content */}
+      {/* Scrolling content — positioned so g=globalHead is at anchorX */}
       <motion.div
         className="absolute inset-0 will-change-transform"
         style={{ x: scrollX }}
       >
         {/* Header */}
         <div className="absolute left-0 right-0" style={{ height: headerH, top: 0 }}>
-          {visibleCols.map(({ g, stepsAhead, localCol, isNow }) => {
-            if (stepsAhead <= 0) return null;
-            const sec = GRID_TIME_HORIZONS_SEC[localCol] ?? 0;
+          {visibleCols.map(({ g, stepsAhead, localCol, isPast, isNow }) => {
+            if (stepsAhead <= 0) return null; // no headers on past/current columns
+            const sec = TIME_HORIZONS[localCol] ?? 0;
             return (
               <div
                 key={g}
                 className={`absolute h-full flex items-center justify-center text-[10px] font-mono tabular-nums tracking-wide
-                  ${isNow ? "text-[#ff3b8d] font-semibold" : "text-[#5a2040]"}`}
+                  ${isNow ? "text-[#0ecc83] font-semibold" : "text-[#2d5a3e]"}`}
                 style={{
                   left: (g - globalHead) * cellW,
                   width: cellW,
-                  borderRight: "1px solid rgba(255,59,141,0.06)",
+                  borderRight: "1px solid rgba(14,204,131,0.06)",
                 }}
               >
-                {formatHorizonLabel(sec)}
+                {formatHorizon(sec)}
               </div>
             );
           })}
@@ -206,7 +210,7 @@ export function MultiplierGrid({
                 top,
                 height: rowH,
                 borderBottom: "1px solid rgba(255,255,255,0.03)",
-                background: isActive ? "rgba(255,59,141,0.04)" : undefined,
+                background: isActive ? "rgba(14,204,131,0.04)" : undefined,
               }}
             >
               {visibleCols.map(({ g, stepsAhead, isPast, isNow, canBet }) => {
@@ -221,14 +225,15 @@ export function MultiplierGrid({
                 const isHeadHere = isNow && snakeHead.signedRow === signedRow;
                 const isHitFlash = hitKey === `${signedRow}:${g}`;
 
+                // Past columns: only show if they have a bet or trail (skip empty past cells)
                 const hasSomething = !!bet || isTrailHere || isHeadHere;
 
-                // Multiplier color ramp
-                let multColor = "rgba(255,59,141,0.35)";
+                // Multiplier color
+                let multColor = "rgba(14,204,131,0.35)";
                 if (mult >= 18) multColor = "rgba(255,80,80,0.8)";
                 else if (mult >= 10) multColor = "rgba(255,140,80,0.7)";
                 else if (mult >= 7) multColor = "rgba(255,200,100,0.6)";
-                else if (mult >= 4) multColor = "rgba(255,59,141,0.55)";
+                else if (mult >= 4) multColor = "rgba(14,204,131,0.55)";
 
                 return (
                   <button
@@ -237,51 +242,54 @@ export function MultiplierGrid({
                     disabled={!canBet}
                     onClick={() => canBet && handleClick(signedRow, g)}
                     className={`absolute h-full flex items-center justify-center transition-colors duration-150
-                      ${canBet ? "cursor-pointer hover:bg-[#ff3b8d]/[0.06] active:bg-[#ff3b8d]/[0.12]" : "cursor-default"}
+                      ${canBet ? "cursor-pointer hover:bg-[#0ecc83]/[0.06] active:bg-[#0ecc83]/[0.12]" : "cursor-default"}
                       ${isHitFlash ? "grid-cell-hit" : ""}`}
                     style={{
                       left: (g - globalHead) * cellW,
                       width: cellW,
+                      // Future columns: show grid lines. Past columns: transparent unless has content
                       borderRight: isPast ? "none" : "1px solid rgba(255,255,255,0.025)",
                       opacity: isPast && !hasSomething ? 0 : 1,
                       background:
                         state === "active"
-                          ? "rgba(255,59,141,0.1)"
+                          ? "rgba(14,204,131,0.1)"
                           : state === "won"
-                            ? "rgba(255,59,141,0.06)"
-                            : isTrailHere
-                              ? "rgba(255,59,141,0.05)"
-                              : isHeadHere
-                                ? "rgba(255,59,141,0.08)"
-                                : undefined,
+                          ? "rgba(14,204,131,0.06)"
+                          : isTrailHere
+                          ? "rgba(14,204,131,0.05)"
+                          : isHeadHere
+                          ? "rgba(14,204,131,0.08)"
+                          : undefined,
                       boxShadow:
                         state === "active"
-                          ? "inset 0 0 0 1.5px rgba(255,59,141,0.5), 0 0 12px rgba(255,59,141,0.1)"
+                          ? "inset 0 0 0 1.5px rgba(14,204,131,0.5), 0 0 12px rgba(14,204,131,0.1)"
                           : state === "won"
-                            ? "inset 0 0 0 1px rgba(255,59,141,0.3)"
-                            : isTrailHere
-                              ? "inset 0 0 0 1px rgba(255,59,141,0.12)"
-                              : isNow
-                                ? "inset 0 0 0 1px rgba(255,59,141,0.15)"
-                                : undefined,
+                          ? "inset 0 0 0 1px rgba(14,204,131,0.3)"
+                          : isTrailHere
+                          ? "inset 0 0 0 1px rgba(14,204,131,0.12)"
+                          : isNow
+                          ? "inset 0 0 0 1px rgba(14,204,131,0.15)"
+                          : undefined,
                     }}
                   >
+                    {/* Trail segment */}
                     {isTrailHere && (
                       <span
                         className="pointer-events-none absolute inset-1 rounded-sm"
                         style={{
-                          background: "rgba(255,59,141,0.04)",
-                          border: "1px solid rgba(255,59,141,0.12)",
+                          background: "rgba(14,204,131,0.04)",
+                          border: "1px solid rgba(14,204,131,0.12)",
                         }}
                       />
                     )}
 
+                    {/* Corner dots (future columns only) */}
                     {!isPast && (
                       <>
-                        <span className="dot dot-tl" />
-                        <span className="dot dot-tr" />
-                        <span className="dot dot-bl" />
-                        <span className="dot dot-br" />
+                        <span className="grid-dot grid-dot-tl" />
+                        <span className="grid-dot grid-dot-tr" />
+                        <span className="grid-dot grid-dot-bl" />
+                        <span className="grid-dot grid-dot-br" />
                       </>
                     )}
 
@@ -300,22 +308,22 @@ export function MultiplierGrid({
                             style={{
                               background:
                                 state === "won"
-                                  ? "rgba(255,59,141,0.2)"
+                                  ? "rgba(14,204,131,0.2)"
                                   : state === "lost"
-                                    ? "rgba(239,68,68,0.1)"
-                                    : "rgba(60,10,30,0.85)",
+                                  ? "rgba(239,68,68,0.1)"
+                                  : "rgba(10,46,26,0.85)",
                               borderColor:
                                 state === "won"
-                                  ? "rgba(255,59,141,0.5)"
+                                  ? "rgba(14,204,131,0.5)"
                                   : state === "lost"
-                                    ? "rgba(239,68,68,0.3)"
-                                    : "rgba(255,59,141,0.5)",
+                                  ? "rgba(239,68,68,0.3)"
+                                  : "rgba(14,204,131,0.5)",
                               boxShadow:
                                 state === "won"
-                                  ? "0 0 16px rgba(255,59,141,0.2)"
+                                  ? "0 0 16px rgba(14,204,131,0.2)"
                                   : state === "active"
-                                    ? "0 0 10px rgba(255,59,141,0.12)"
-                                    : "none",
+                                  ? "0 0 10px rgba(14,204,131,0.12)"
+                                  : "none",
                             }}
                           >
                             <div
@@ -323,10 +331,10 @@ export function MultiplierGrid({
                               style={{
                                 color:
                                   state === "won"
-                                    ? "#ff3b8d"
+                                    ? "#0ecc83"
                                     : state === "lost"
-                                      ? "#f87171"
-                                      : "#ffffff",
+                                    ? "#f87171"
+                                    : "#ffffff",
                                 textDecoration:
                                   state === "lost" ? "line-through" : "none",
                               }}
@@ -339,7 +347,7 @@ export function MultiplierGrid({
                                 color:
                                   state === "lost"
                                     ? "rgba(239,68,68,0.4)"
-                                    : "rgba(255,59,141,0.65)",
+                                    : "rgba(14,204,131,0.65)",
                               }}
                             >
                               {formatMult(bet.multiplier)}
@@ -348,7 +356,7 @@ export function MultiplierGrid({
                         </motion.div>
                       ) : !isPast ? (
                         <span
-                          className="cell-label relative z-[2] pointer-events-none"
+                          className="cell-mult-label relative z-[2] pointer-events-none"
                           style={{ color: multColor }}
                         >
                           {formatMult(mult)}
@@ -363,15 +371,15 @@ export function MultiplierGrid({
         })}
       </motion.div>
 
-      {/* Active row highlight (fixed, doesn't scroll) */}
+      {/* Active row highlight */}
       <div
         className="absolute left-0 right-0 pointer-events-none z-30"
         style={{
           top: headerH + activeRowIdx * rowH,
           height: rowH,
-          background: "rgba(255,59,141,0.035)",
-          borderTop: "1px solid rgba(255,59,141,0.07)",
-          borderBottom: "1px solid rgba(255,59,141,0.07)",
+          background: "rgba(14,204,131,0.035)",
+          borderTop: "1px solid rgba(14,204,131,0.07)",
+          borderBottom: "1px solid rgba(14,204,131,0.07)",
           transition: "top 0.45s cubic-bezier(0.22,1,0.36,1)",
         }}
       />
