@@ -212,36 +212,50 @@ export function MultiplierGrid({
           initial={{ opacity: 0.82, x: 6 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          className="flex h-7 shrink-0 border-b border-[#141c2e]/80"
+          className="flex h-10 shrink-0 border-b border-[#1e293b] bg-[#0c101c]/95"
         >
-          <div className="w-[52px] shrink-0" />
+          <div className="w-[52px] shrink-0 border-r border-[#1e293b]/90" />
           {Array.from({ length: numCols }, (_, ci) => {
             const isPast = ci < headFloor;
             const isNow = ci === headFloor;
             const reserved = ci > maxPlay;
+            const canBetHere = !reserved && ci > headFloor;
             const idx =
               (snakeHead.floorGlobalCol + ci) %
               GRID_TIME_HORIZONS_SEC.length;
             const sec = GRID_TIME_HORIZONS_SEC[idx] ?? 0;
             const label = formatHorizonLabel(sec);
+            const firstPlay = canBetHere && ci === headFloor + 1;
+            const lastPlay = canBetHere && ci === maxPlay;
             return (
               <div
                 key={`${snakeHead.floorGlobalCol}-${ci}`}
                 style={{ width: cellW }}
-                className={`shrink-0 flex items-center justify-center text-[11px] font-mono tabular-nums tracking-tight ${
+                className={`grid-header-time shrink-0 flex flex-col items-center justify-center gap-0.5 border-l border-[#1e293b]/80 px-0.5 ${
                   isNow
-                    ? "text-[#ff3b8d] font-semibold"
+                    ? "grid-header-time--now"
                     : isPast
-                      ? "text-zinc-600"
+                      ? "grid-header-time--past"
                       : reserved
-                        ? "text-zinc-600"
-                        : "text-zinc-400"
-                } ${isNow ? "bg-[#ff3b8d]/[0.08]" : ""} ${
-                  spotlightCol === ci ? "grid-header-col-spotlight" : ""
-                }`}
-                title={`Target horizon ${label}`}
+                        ? "grid-header-time--off"
+                        : "grid-header-time--play"
+                } ${firstPlay ? "grid-header-time--play-start" : ""} ${
+                  lastPlay ? "grid-header-time--play-end" : ""
+                } ${spotlightCol === ci ? "grid-header-col-spotlight" : ""}`}
+                title={
+                  reserved
+                    ? "No bets — past settlement window"
+                    : isPast || isNow
+                      ? `Locked — ${label}`
+                      : `Tap cells below — hold to ${label}`
+                }
               >
-                {reserved ? "—" : label}
+                {isNow && (
+                  <span className="grid-header-time__pill">LIVE</span>
+                )}
+                <span className="grid-header-time__label font-mono tabular-nums">
+                  {reserved ? "—" : label}
+                </span>
               </div>
             );
           })}
@@ -299,6 +313,8 @@ export function MultiplierGrid({
                   const isHitFlash = snakeKey === hitKey;
                   const isColumnSpotlight =
                     spotlightCol !== null && spotlightCol === ci;
+                  const firstPlay = canBet && ci === headFloor + 1;
+                  const lastPlay = canBet && ci === maxPlay;
 
                   return (
                     <motion.button
@@ -306,7 +322,23 @@ export function MultiplierGrid({
                       type="button"
                       style={{ width: cellW }}
                       disabled={!canBet}
-                      whileTap={canBet ? { scale: 0.96 } : undefined}
+                      tabIndex={canBet ? 0 : -1}
+                      aria-disabled={!canBet}
+                      aria-label={
+                        canBet
+                          ? `Place bet, multiplier ${formatMult(mult)}`
+                          : reserved
+                            ? "Column closed"
+                            : isNow
+                              ? "Snake column"
+                              : "Past column"
+                      }
+                      whileHover={
+                        canBet
+                          ? { scale: 1.015, transition: { duration: 0.12 } }
+                          : undefined
+                      }
+                      whileTap={canBet ? { scale: 0.97 } : undefined}
                       transition={{
                         type: "spring",
                         stiffness: 520,
@@ -315,17 +347,21 @@ export function MultiplierGrid({
                       onClick={(e) =>
                         handleClick(e, signedRow, ci, canBet)
                       }
-                      className={`shrink-0 grid-cell flex items-center justify-center border-l border-[#141c2e] relative cursor-pointer ${
-                        !canBet ? "cursor-default" : ""
+                      className={`shrink-0 grid-cell flex items-center justify-center border-l border-[#1a2235] relative ${
+                        canBet
+                          ? "cell-playable cursor-pointer"
+                          : "cell-locked cursor-not-allowed"
                       } ${isPast ? "cell-past" : ""} ${
                         isNow ? "cell-now" : ""
-                      } ${
+                      } ${reserved ? "cell-col-off" : ""} ${
                         isColumnSpotlight ? "cell-column-spotlight" : ""
                       } ${
                         ci <= maxPlay && !reserved
                           ? "cell-snake-zone"
                           : ""
-                      } ${reserved ? "cell-reserved" : ""} ${
+                      } ${firstPlay ? "cell-play-band-start" : ""} ${
+                        lastPlay ? "cell-play-band-end" : ""
+                      } ${
                         state === "active"
                           ? "has-bet"
                           : state === "won"

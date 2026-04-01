@@ -49,20 +49,90 @@ body {
 /* ── Grid cells ── */
 
 .grid-cell {
-  transition: background 100ms ease;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.22s ease,
+    border-color 0.2s ease,
+    opacity 0.2s ease;
   background: transparent;
 }
-.grid-cell:hover {
-  background: rgba(255, 59, 141, 0.08);
+
+.grid-cell.cell-playable:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
 }
-.grid-cell:active {
-  background: rgba(255, 59, 141, 0.14);
+
+.grid-cell.cell-playable:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(52, 211, 153, 0.55),
+    0 0 0 2px rgba(10, 14, 26, 0.95),
+    0 0 14px rgba(52, 211, 153, 0.25);
+}
+
+.grid-cell.cell-playable:active:not(:disabled) {
+  background: rgba(16, 185, 129, 0.16);
+}
+
+/* Locked: past, snake column, or off-market strip */
+.grid-cell.cell-locked {
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.88;
+}
+
+.grid-cell.cell-locked.cell-past,
+.grid-cell.cell-locked.cell-now:not(.cell-col-off) {
+  opacity: 0.9;
+}
+
+.grid-cell.cell-col-off {
+  opacity: 0.42;
+  background: repeating-linear-gradient(
+    -32deg,
+    rgba(15, 23, 42, 0.92),
+    rgba(15, 23, 42, 0.92) 5px,
+    rgba(30, 41, 59, 0.85) 5px,
+    rgba(30, 41, 59, 0.85) 10px
+  ) !important;
+  box-shadow: inset 2px 0 0 rgba(239, 68, 68, 0.35);
+}
+
+.grid-cell.cell-col-off .cell-label,
+.grid-cell.cell-col-off .dot {
+  opacity: 0.5;
+}
+
+/* Playable band: clear left/right frame */
+.grid-cell.cell-play-band-start {
+  box-shadow:
+    inset 2px 0 0 rgba(52, 211, 153, 0.75),
+    inset 0 0 0 1px rgba(52, 211, 153, 0.12);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.grid-cell.cell-play-band-end {
+  box-shadow:
+    inset -2px 0 0 rgba(52, 211, 153, 0.55),
+    inset 0 0 0 1px rgba(52, 211, 153, 0.1);
+}
+
+.grid-cell.cell-playable.cell-play-band-start:hover:not(:disabled) {
+  box-shadow:
+    inset 2px 0 0 rgba(52, 211, 153, 0.9),
+    inset 0 0 0 1px rgba(52, 211, 153, 0.35);
 }
 
 /* ── Active bet — neon pink border (chart.win) ── */
 .grid-cell.has-bet {
   background: rgba(255, 59, 141, 0.12);
-  box-shadow: inset 0 0 0 2px rgba(255, 59, 141, 0.85), 0 0 14px rgba(255, 59, 141, 0.2);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 59, 141, 0.85),
+    0 0 14px rgba(255, 59, 141, 0.2);
+}
+
+.grid-cell.cell-locked.has-bet {
+  opacity: 1;
 }
 .grid-cell.has-bet .cell-label {
   color: #fda4d4;
@@ -226,10 +296,81 @@ body {
   color: rgba(186, 198, 214, 0.5);
 }
 .grid-cell.cell-now {
-  box-shadow: inset 0 0 0 1px rgba(255, 59, 141, 0.25);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 59, 141, 0.45),
+    inset 0 0 12px rgba(255, 59, 141, 0.08);
+  background: rgba(255, 59, 141, 0.06);
   transition:
     box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     background 0.45s ease;
+}
+
+/* Time header row — high contrast horizons */
+.grid-header-time {
+  min-height: 2.5rem;
+}
+
+.grid-header-time__label {
+  font-size: 0.8125rem;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.grid-header-time--past .grid-header-time__label {
+  color: rgba(161, 161, 170, 0.92);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.grid-header-time--now {
+  background: rgba(255, 59, 141, 0.16);
+  box-shadow: inset 0 -3px 0 rgba(255, 59, 141, 0.75);
+}
+
+.grid-header-time--now .grid-header-time__label {
+  color: #ffe4f0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  text-shadow: 0 0 16px rgba(255, 59, 141, 0.5);
+}
+
+.grid-header-time__pill {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #0a0e1a;
+  background: linear-gradient(135deg, #ff8ec8, #ff3b8d);
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.grid-header-time--play .grid-header-time__label {
+  color: rgba(241, 245, 249, 0.98);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.grid-header-time--off {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.grid-header-time--off .grid-header-time__label {
+  color: rgba(82, 82, 91, 0.75);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.grid-header-time--play-start {
+  box-shadow:
+    inset 2px 0 0 rgba(52, 211, 153, 0.7),
+    inset 0 -1px 0 rgba(52, 211, 153, 0.2);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.grid-header-time--play-end {
+  box-shadow: inset -2px 0 0 rgba(52, 211, 153, 0.5);
 }
 
 /* Random full-column spotlight (playable columns only) */
