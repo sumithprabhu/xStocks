@@ -20,3 +20,15 @@ export function formatMult(v: number) {
 export function formatPnl(v: number) {
   return `${v >= 0 ? "+" : ""}${usd.format(v)}`;
 }
+
+export function formatPct(v: number) {
+  const sign = v >= 0 ? "+" : "";
+  return `${sign}${v.toFixed(2)}%`;
+}
+
+/** One-line bet label like "$10 x2" */
+export function formatBetCompact(amount: number, mult: number) {
+  const m =
+    mult >= 10 ? `${Math.round(mult)}` : mult.toFixed(1).replace(/\.0$/, "");
+  return `$${amount} x${m}`;
+}

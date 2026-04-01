@@ -1,8 +1,11 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
+  useState,
 } from "react";
 import {
   createChart,
@@ -16,9 +19,14 @@ import type {
   IChartApi,
   ISeriesApi,
   ISeriesMarkersPluginApi,
+  Time,
   UTCTimestamp,
 } from "lightweight-charts";
 import type { PricePoint } from "../lib/types";
+import { withStepsLastSegmentAngleDegPx } from "../lib/chartSnakeHead";
+
+const NEON = "#ff3b8d";
+const BG = "#0a0e1a";
 
 export interface ChartHandle {
   timeToX: (time: number) => number | null;
@@ -32,10 +40,17 @@ interface Props {
   gridHalfHeight: number;
 }
 
+interface Mouth {
+  x: number;
+  y: number;
+  angle: number;
+}
+
 export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
   { history, currentPrice, tickSize, gridHalfHeight },
   ref
 ) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const lineRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -43,7 +58,13 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
   const priceLinesRef = useRef<
     ReturnType<ISeriesApi<"Line">["createPriceLine"]>[]
   >([]);
-  const markersRef = useRef<ISeriesMarkersPluginApi | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const lastChartScrollRef = useRef(0);
+  const historyRef = useRef(history);
+  historyRef.current = history;
+
+  const [mouth, setMouth] = useState<Mouth | null>(null);
+  const [layoutTick, setLayoutTick] = useState(0);
 
   useImperativeHandle(ref, () => ({
     timeToX(time: number) {
@@ -58,7 +79,36 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
     },
   }));
 
-  // Mount chart
+  const syncMouth = useCallback(() => {
+    const chart = chartRef.current;
+    const line = lineRef.current;
+    const h = historyRef.current;
+    if (!chart || !line || h.length < 2) {
+      setMouth(null);
+      return;
+    }
+    const ts = chart.timeScale();
+    const a = h[h.length - 2]!;
+    const b = h[h.length - 1]!;
+    const x0 = ts.timeToCoordinate(a.time as UTCTimestamp);
+    const x1 = ts.timeToCoordinate(b.time as UTCTimestamp);
+    const y0 = line.priceToCoordinate(a.value);
+    const y1 = line.priceToCoordinate(b.value);
+    if (x0 === null || x1 === null || y0 === null || y1 === null) {
+      setMouth(null);
+      return;
+    }
+    const angle = withStepsLastSegmentAngleDegPx(
+      x0,
+      y0,
+      x1,
+      y1,
+      a.value,
+      b.value
+    );
+    setMouth({ x: x1, y: y1, angle });
+  }, []);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -67,19 +117,21 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
       width: el.clientWidth,
       height: el.clientHeight,
       layout: {
-        background: { color: "#000000" },
+        background: { color: BG },
         textColor: "#333",
         attributionLogo: false,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.025)" },
-        horzLines: { color: "rgba(255,255,255,0.015)" },
+        vertLines: { color: "rgba(255,59,141,0.06)" },
+        horzLines: { color: "rgba(255,59,141,0.05)" },
       },
       rightPriceScale: { visible: false },
       timeScale: {
         visible: false,
-        rightOffset: 80, // positions dot inside the grid area
-        barSpacing: 6,
+        rightOffset: 3,
+        barSpacing: 5,
+        fixLeftEdge: true,
+        fixRightEdge: false,
       },
       crosshair: {
         vertLine: { visible: false },
@@ -89,21 +141,20 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
       handleScale: false,
     });
 
-    // Glow area underneath the line
     const area = chart.addSeries(AreaSeries, {
-      topColor: "rgba(16,185,129,0.08)",
-      bottomColor: "rgba(16,185,129,0)",
-      lineColor: "transparent",
-      lineWidth: 0,
-      lineType: LineType.Curved,
+      topColor: "rgba(255,59,141,0.22)",
+      bottomColor: "rgba(255,59,141,0)",
+      lineColor: "rgba(0,0,0,0)",
+      lineWidth: 1,
+      lineType: LineType.WithSteps,
       lastValueVisible: false,
       priceLineVisible: false,
     });
 
     const line = chart.addSeries(LineSeries, {
-      color: "#10b981",
-      lineWidth: 2,
-      lineType: LineType.Curved,
+      color: NEON,
+      lineWidth: 3,
+      lineType: LineType.WithSteps,
       lastValueVisible: false,
       priceLineVisible: false,
       crosshairMarkerVisible: false,
@@ -116,20 +167,34 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
 
     const ro = new ResizeObserver(() => {
       chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      requestAnimationFrame(syncMouth);
     });
     ro.observe(el);
 
+    const wrap = wrapRef.current;
+    const ro2 =
+      wrap &&
+      new ResizeObserver(() => {
+        setLayoutTick((n) => n + 1);
+      });
+    if (wrap && ro2) ro2.observe(wrap);
+
     return () => {
       ro.disconnect();
+      ro2?.disconnect();
       chart.remove();
       chartRef.current = null;
       lineRef.current = null;
       areaRef.current = null;
       markersRef.current = null;
     };
-  }, []);
+  }, [syncMouth]);
 
-  // Push data
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(syncMouth);
+    return () => cancelAnimationFrame(id);
+  }, [history, layoutTick, syncMouth]);
+
   useEffect(() => {
     const line = lineRef.current;
     const area = areaRef.current;
@@ -144,21 +209,17 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
     line.setData(mapped);
     area.setData(mapped);
 
-    // White dot at the tip
-    markersRef.current?.setMarkers([
-      {
-        time: mapped[mapped.length - 1].time,
-        position: "inBar",
-        shape: "circle",
-        color: "#ffffff",
-        size: 0.6,
-      },
-    ]);
+    markersRef.current?.setMarkers([]);
 
-    chart.timeScale().scrollToRealTime();
-  }, [history]);
+    const t = Date.now();
+    if (t - lastChartScrollRef.current > 1800) {
+      chart.timeScale().scrollToRealTime();
+      lastChartScrollRef.current = t;
+    }
 
-  // Lock Y-axis to match grid price range + horizontal price lines
+    requestAnimationFrame(syncMouth);
+  }, [history, syncMouth]);
+
   useEffect(() => {
     const line = lineRef.current;
     const area = areaRef.current;
@@ -166,9 +227,8 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
 
     const center = Math.round(currentPrice / tickSize) * tickSize;
     const halfRange = gridHalfHeight * tickSize;
-    const margin = halfRange * 0.15; // small margin so line doesn't clip edges
+    const margin = halfRange * 0.15;
 
-    // Lock both series to the same price range as the grid
     const provider = () => ({
       priceRange: {
         minValue: center - halfRange - margin,
@@ -178,7 +238,6 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
     line.applyOptions({ autoscaleInfoProvider: provider });
     area.applyOptions({ autoscaleInfoProvider: provider });
 
-    // Remove old price lines
     for (const pl of priceLinesRef.current) {
       try {
         line.removePriceLine(pl);
@@ -188,18 +247,41 @@ export const PriceChart = forwardRef<ChartHandle, Props>(function PriceChart(
     }
     priceLinesRef.current = [];
 
-    // Draw horizontal lines at each grid row
     for (let i = -gridHalfHeight; i <= gridHalfHeight; i++) {
       const pl = line.createPriceLine({
         price: center + i * tickSize,
-        color: i === 0 ? "rgba(16,185,129,0.12)" : "rgba(255,255,255,0.03)",
+        color:
+          i === 0 ? "rgba(255,59,141,0.14)" : "rgba(255,255,255,0.04)",
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
         axisLabelVisible: false,
       });
       priceLinesRef.current.push(pl);
     }
-  }, [currentPrice, tickSize, gridHalfHeight]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+    requestAnimationFrame(syncMouth);
+  }, [currentPrice, tickSize, gridHalfHeight, syncMouth]);
+
+  return (
+    <div ref={wrapRef} className="relative isolate h-full w-full overflow-visible">
+      <div ref={containerRef} className="h-full w-full" />
+      {mouth && (
+        <div
+          className="pointer-events-none absolute left-0 top-0 z-50 overflow-visible"
+          style={{
+            transform: `translate(${mouth.x}px, ${mouth.y}px) rotate(${mouth.angle}deg)`,
+            transformOrigin: "0 0",
+          }}
+          aria-hidden
+        >
+          <div
+            className="flex items-center"
+            style={{ transform: "translateY(-50%)" }}
+          >
+            <span className="inline-block h-0 w-0 border-y-[6px] border-y-transparent border-l-[10px] border-l-[#ff3b8d] drop-shadow-[0_0_8px_rgba(255,59,141,0.8)]" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 });

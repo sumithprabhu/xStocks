@@ -1,3 +1,5 @@
+export type BetStatus = "active" | "won" | "lost";
+
 export interface TokenConfig {
   symbol: string;
   ticker: string;
@@ -7,16 +9,16 @@ export interface TokenConfig {
   volatility: number;
   gridWidth: number;
   gridHalfHeight: number;
-  bucketSeconds: number;
   houseEdgeBps: number;
 }
-
-export type BetStatus = "active" | "won" | "lost";
 
 export interface Bet {
   id: string;
   tokenSymbol: string;
   row: number;
+  /** Fixed grid column index (0..gridWidth-1) */
+  targetCol: number;
+  /** Steps ahead when placed (for display) */
   col: number;
   priceLevel: number;
   amount: number;

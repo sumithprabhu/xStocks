@@ -1,4 +1,4 @@
-import type { PricePoint, TokenConfig } from "./types";
+import type { TokenConfig } from "./types";
 
 const BASE = "/xstocks";
 

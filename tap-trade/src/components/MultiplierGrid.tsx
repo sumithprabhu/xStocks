@@ -1,22 +1,55 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useMotionValue } from "framer-motion";
 import type { TokenConfig, Bet, BetSize } from "../lib/types";
+import type { SnakeSegment } from "../hooks/useSnakeTrail";
+import { maxSnakeCol } from "../hooks/useSnakeTrail";
+import { GRID_TIME_HORIZONS_SEC } from "../lib/constants";
+import { formatHorizonLabel } from "../lib/gridHorizons";
 import { calculateMultiplier } from "../lib/multiplier";
-import { formatMult, formatUsd, formatPnl } from "../lib/format";
+import { formatMult, formatBetCompact, formatPnl } from "../lib/format";
 
 interface Props {
   token: TokenConfig;
   currentPrice: number;
   betSize: BetSize;
   bets: Bet[];
-  onCellClick: (row: number, col: number) => void;
+  snakeHead: SnakeSegment;
+  snakeTrail: SnakeSegment[];
+  onCellClick: (row: number, targetCol: number) => void;
+  onSnakeHitBet?: (bet: Bet) => void;
 }
 
-export function MultiplierGrid({ token, currentPrice, bets, onCellClick }: Props) {
-  const { gridHalfHeight, gridWidth, houseEdgeBps, tickSize, bucketSeconds } =
-    token;
-  const cols = gridWidth + 1;
+export function MultiplierGrid({
+  token,
+  currentPrice,
+  bets,
+  snakeHead,
+  snakeTrail,
+  onCellClick,
+  onSnakeHitBet,
+}: Props) {
+  const [, setTick] = useState(0);
+  const [hitKey, setHitKey] = useState<string | null>(null);
+  const prevHeadKeyRef = useRef<string>("");
+
+  useEffect(() => {
+    const iv = setInterval(() => setTick((x) => x + 1), 250);
+    return () => clearInterval(iv);
+  }, []);
+
+  const { gridHalfHeight, gridWidth, houseEdgeBps, tickSize } = token;
   const rows = gridHalfHeight * 2;
   const center = Math.round(currentPrice / tickSize) * tickSize;
+
+  const headFloor = snakeHead.col;
+  const maxPlay = maxSnakeCol(token);
+  const numCols = gridWidth;
+
+  const driftX = useMotionValue(0);
+  useEffect(() => {
+    const m = Math.max(0.001, maxPlay);
+    driftX.set(-(snakeHead.colFloat / m) * 26);
+  }, [snakeHead.colFloat, maxPlay, driftX]);
 
   const rowData = useMemo(() => {
     const out: { signedRow: number; absRow: number; price: number }[] = [];
@@ -34,50 +67,60 @@ export function MultiplierGrid({ token, currentPrice, bets, onCellClick }: Props
     return out;
   }, [gridHalfHeight, rows, center, tickSize]);
 
-  // Which row is the line currently in?
   const activeRowIdx = useMemo(() => {
     let closest = 0;
     let minDist = Infinity;
     for (let i = 0; i < rowData.length; i++) {
       const d = Math.abs(currentPrice - rowData[i].price);
-      if (d < minDist) { minDist = d; closest = i; }
+      if (d < minDist) {
+        minDist = d;
+        closest = i;
+      }
     }
     return closest;
   }, [currentPrice, rowData]);
 
-  // Map cells to bets by absolute expiry
   const cellBets = useMemo(() => {
     const m = new Map<string, Bet>();
-    for (const b of bets) {
-      const key = `${b.row}:${b.expiresAt}`;
+    for (const bet of bets) {
+      const key = `${bet.row}:${bet.targetCol}`;
       const existing = m.get(key);
-      if (!existing || b.status === "active") m.set(key, b);
+      if (!existing || bet.status === "active") m.set(key, bet);
     }
     return m;
   }, [bets]);
 
-  // Smooth scroll via RAF
-  const outerRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    let raf: number;
-    const outer = outerRef.current;
-    const inner = scrollRef.current;
-    if (!outer || !inner) return;
-    function tick() {
-      const now = Date.now() / 1000;
-      const progress = (now % bucketSeconds) / bucketSeconds;
-      const cellW = outer!.clientWidth / gridWidth;
-      inner!.style.transform = `translateX(${-progress * cellW}px)`;
-      raf = requestAnimationFrame(tick);
+    const h = snakeHead;
+    const key = `${h.signedRow}:${h.col}`;
+    if (key === prevHeadKeyRef.current) return;
+    prevHeadKeyRef.current = key;
+
+    const bet = cellBets.get(key);
+    if (bet?.status === "active") {
+      setHitKey(key);
+      onSnakeHitBet?.(bet);
+      const t = window.setTimeout(() => setHitKey(null), 800);
+      return () => clearTimeout(t);
     }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [bucketSeconds, gridWidth]);
+  }, [snakeHead, cellBets, onSnakeHitBet]);
+
+  const snakeBodyAtCell = useMemo(() => {
+    const map = new Set<string>();
+    for (const seg of snakeTrail.slice(1)) {
+      map.add(`${seg.signedRow}:${seg.col}`);
+    }
+    return map;
+  }, [snakeTrail]);
 
   const handleClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>, row: number, col: number) => {
+    (
+      e: React.MouseEvent<HTMLButtonElement>,
+      row: number,
+      col: number,
+      canBet: boolean
+    ) => {
+      if (!canBet) return;
       onCellClick(row, col);
       const btn = e.currentTarget;
       btn.classList.add("cell-flash");
@@ -86,98 +129,176 @@ export function MultiplierGrid({ token, currentPrice, bets, onCellClick }: Props
     [onCellClick]
   );
 
-  const cellW = `${100 / cols}%`;
+  const cellW = `${100 / numCols}%`;
 
   return (
-    <div className="h-full flex flex-col select-none">
-      <div ref={outerRef} className="flex-1 flex flex-col overflow-hidden">
-        <div
-          ref={scrollRef}
-          className="h-full flex flex-col will-change-transform"
-          style={{ width: `${(cols / gridWidth) * 100}%` }}
+    <div className="h-full flex flex-col select-none overflow-x-hidden">
+      <motion.div
+        className="flex-1 flex flex-col min-w-[720px] will-change-transform"
+        style={{ x: driftX }}
+      >
+        <motion.div
+          key={snakeHead.floorGlobalCol}
+          initial={{ opacity: 0.88 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+          className="flex h-7 shrink-0 border-b border-[#141c2e]/80"
         >
-          {/* Time headers */}
-          <div className="flex h-6 shrink-0">
-            <div className="w-[52px] shrink-0" />
-            {Array.from({ length: cols }, (_, c) => (
+          <div className="w-[52px] shrink-0" />
+          {Array.from({ length: numCols }, (_, ci) => {
+            const isPast = ci < headFloor;
+            const isNow = ci === headFloor;
+            const reserved = ci > maxPlay;
+            const idx =
+              (snakeHead.floorGlobalCol + ci) %
+              GRID_TIME_HORIZONS_SEC.length;
+            const sec = GRID_TIME_HORIZONS_SEC[idx] ?? 0;
+            const label = formatHorizonLabel(sec);
+            return (
               <div
-                key={c}
+                key={`${snakeHead.floorGlobalCol}-${ci}`}
                 style={{ width: cellW }}
-                className="shrink-0 flex items-center justify-center text-[9px] text-zinc-700 font-mono"
+                className={`shrink-0 flex items-center justify-center text-[10px] font-mono tabular-nums tracking-tight ${
+                  isNow
+                    ? "text-[#ff3b8d] font-semibold"
+                    : isPast
+                      ? "text-zinc-600"
+                      : reserved
+                        ? "text-zinc-600"
+                        : "text-zinc-400"
+                } ${isNow ? "bg-[#ff3b8d]/[0.08]" : ""}`}
+                title={`Target horizon ${label}`}
               >
-                {(c + 1) * bucketSeconds}s
+                {reserved ? "—" : label}
               </div>
-            ))}
-          </div>
+            );
+          })}
+        </motion.div>
 
-          {/* Grid rows */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {rowData.map(({ signedRow, absRow, price }, ri) => {
-              const isActive = ri === activeRowIdx;
-              const isGap = ri === gridHalfHeight - 1;
+        <div className="flex-1 flex flex-col min-h-0">
+          {rowData.map(({ signedRow, absRow, price }, ri) => {
+            const isActive = ri === activeRowIdx;
+            const isGap = ri === gridHalfHeight - 1;
 
-              return (
+            return (
+              <div
+                key={ri}
+                className={`flex-1 flex items-stretch min-h-0 transition-colors duration-300 ${
+                  isGap
+                    ? "border-b border-[#ff3b8d]/10"
+                    : "border-b border-[#141c2e]"
+                } ${isActive ? "price-row-active" : ""}`}
+              >
                 <div
-                  key={ri}
-                  className={`flex-1 flex items-stretch min-h-0 transition-colors duration-300 ${
-                    isGap ? "border-b border-emerald-500/10" : "border-b border-white/[0.02]"
-                  } ${isActive ? "price-row-active" : ""}`}
+                  className={`w-[52px] shrink-0 flex items-center justify-end pr-2 transition-colors duration-300 ${
+                    isActive ? "text-[#ff3b8d]" : "text-zinc-600"
+                  }`}
                 >
-                  {/* Price label */}
-                  <div className={`w-[52px] shrink-0 flex items-center justify-end pr-2 transition-colors duration-300 ${
-                    isActive ? "text-emerald-400" : "text-zinc-700"
-                  }`}>
-                    <span className="text-[10px] font-mono tabular-nums">
-                      {price.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {/* Cells */}
-                  {Array.from({ length: cols }, (_, ci) => {
-                    const tb = ci + 1;
-                    const mult = calculateMultiplier(absRow, tb, houseEdgeBps);
-
-                    const now = Math.floor(Date.now() / 1000);
-                    const nextBucket = Math.ceil(now / bucketSeconds) * bucketSeconds;
-                    const cellExpiry = nextBucket + ci * bucketSeconds;
-                    const bet = cellBets.get(`${signedRow}:${cellExpiry}`);
-                    const state = bet?.status;
-
-                    return (
-                      <button
-                        key={ci}
-                        style={{ width: cellW }}
-                        onClick={(e) => handleClick(e, signedRow, tb)}
-                        className={`shrink-0 grid-cell flex items-center justify-center border-l border-white/[0.02] relative cursor-pointer ${
-                          state === "active" ? "has-bet" :
-                          state === "won" ? "cell-won" :
-                          state === "lost" ? "cell-lost" : ""
-                        } ${isActive ? "row-glow" : ""}`}
-                      >
-                        <span className="dot dot-tl" />
-                        <span className="dot dot-tr" />
-                        <span className="dot dot-bl" />
-                        <span className="dot dot-br" />
-
-                        {bet ? (
-                          <div className="bet-inline">
-                            <div className="bet-amount">
-                              {state === "won" ? formatPnl(bet.pnl) : formatUsd(bet.amount)}
-                            </div>
-                            <div className="bet-mult">{formatMult(bet.multiplier)}</div>
-                          </div>
-                        ) : (
-                          <span className="cell-label">{formatMult(mult)}</span>
-                        )}
-                      </button>
-                    );
-                  })}
+                  <span className="text-[10px] font-mono tabular-nums">
+                    {price.toFixed(2)}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+
+                {Array.from({ length: numCols }, (_, ci) => {
+                  const isPast = ci < headFloor;
+                  const isNow = ci === headFloor;
+                  const reserved = ci > maxPlay;
+                  const canBet = !reserved && ci > headFloor;
+
+                  const stepsAhead = Math.max(1, ci - headFloor);
+                  const mult = calculateMultiplier(
+                    absRow,
+                    stepsAhead,
+                    houseEdgeBps
+                  );
+
+                  const bet = cellBets.get(`${signedRow}:${ci}`);
+                  const state = bet?.status;
+
+                  const snakeKey = `${signedRow}:${ci}`;
+                  const isHeadHere =
+                    snakeHead.signedRow === signedRow && ci === headFloor;
+                  const isBodyHere =
+                    !isHeadHere && snakeBodyAtCell.has(snakeKey);
+                  const isHitFlash = snakeKey === hitKey;
+
+                  return (
+                    <motion.button
+                      key={ci}
+                      type="button"
+                      style={{ width: cellW }}
+                      disabled={!canBet}
+                      whileTap={canBet ? { scale: 0.96 } : undefined}
+                      transition={{
+                        type: "spring",
+                        stiffness: 520,
+                        damping: 28,
+                      }}
+                      onClick={(e) =>
+                        handleClick(e, signedRow, ci, canBet)
+                      }
+                      className={`shrink-0 grid-cell flex items-center justify-center border-l border-[#141c2e] relative cursor-pointer ${
+                        !canBet ? "opacity-40 cursor-default" : ""
+                      } ${isPast ? "cell-past" : ""} ${
+                        isNow ? "cell-now" : ""
+                      } ${
+                        ci <= maxPlay && !reserved
+                          ? "cell-snake-zone"
+                          : ""
+                      } ${reserved ? "cell-reserved" : ""} ${
+                        state === "active"
+                          ? "has-bet"
+                          : state === "won"
+                            ? "cell-won"
+                            : state === "lost"
+                              ? "cell-lost"
+                              : ""
+                      } ${isHitFlash ? "cell-bet-hit" : ""} ${
+                        isActive ? "row-glow" : ""
+                      }`}
+                    >
+                      {isBodyHere && (
+                        <span
+                          className="pointer-events-none absolute inset-1.5 rounded-sm bg-[#3a1028]/90 border border-[#ff3b8d]/35 z-[1]"
+                          aria-hidden
+                        />
+                      )}
+
+                      <span className="dot dot-tl" />
+                      <span className="dot dot-tr" />
+                      <span className="dot dot-bl" />
+                      <span className="dot dot-br" />
+
+                      {bet ? (
+                        <div className="bet-inline bet-compact relative z-[2]">
+                          <div
+                            className={`bet-amount ${
+                              state === "lost"
+                                ? "line-through opacity-70"
+                                : ""
+                            }`}
+                          >
+                            {state === "won"
+                              ? formatPnl(bet.pnl)
+                              : formatBetCompact(
+                                  bet.amount,
+                                  bet.multiplier
+                                )}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="cell-label relative z-[2]">
+                          {reserved ? "×" : canBet ? formatMult(mult) : "—"}
+                        </span>
+                      )}
+                    </motion.button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
