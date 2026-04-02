@@ -235,6 +235,7 @@ export function LandingPage({ onEnter }: Props) {
             >
               <button
                 type="button"
+                onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}
                 className="hover:opacity-80 transition-opacity cursor-pointer whitespace-nowrap shrink-0 font-sans font-semibold"
               >
                 How it works?
@@ -248,6 +249,7 @@ export function LandingPage({ onEnter }: Props) {
               </span>
               <button
                 type="button"
+                onClick={() => document.getElementById("markets")?.scrollIntoView({ behavior: "smooth" })}
                 className="hover:opacity-80 transition-opacity cursor-pointer whitespace-nowrap shrink-0 font-sans font-semibold"
               >
                 Markets
@@ -259,12 +261,12 @@ export function LandingPage({ onEnter }: Props) {
               >
                 |
               </span>
-              <button
-                type="button"
+              <a
+                href="/docs"
                 className="hover:opacity-80 transition-opacity cursor-pointer whitespace-nowrap shrink-0 font-sans font-semibold"
               >
                 Documentation
-              </button>
+              </a>
             </div>
 
             <div className="col-start-2 md:col-start-3 flex items-center justify-self-end gap-2 sm:gap-3 min-w-0">
