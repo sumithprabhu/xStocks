@@ -11,7 +11,7 @@ import { useSnakeTrail } from "../hooks/useSnakeTrail";
 import { TOKENS } from "../lib/constants";
 import type { Bet, BetSize } from "../lib/types";
 import { celebrateWin } from "../lib/celebrate";
-import { formatBetCompact, formatPnl, formatUsd } from "../lib/format";
+import { formatBetCompact, formatUsd } from "../lib/format";
 
 const ANCHOR_FRAC = 0.38; // head dot sits at 38 % from left
 
@@ -54,15 +54,33 @@ export function GridApp() {
   }, []);
 
   useEffect(() => {
+    let totalWon = 0;
+    let totalLost = 0;
+    let wonCount = 0;
+    let lostCount = 0;
+
     for (const b of bets) {
       const prev = betStatusRef.current.get(b.id);
       if (prev === "active" && b.status === "won") {
-        celebrateWin();
-        setToast({ id: `win-${b.id}`, kind: "win", title: "WIN", subtitle: formatPnl(b.pnl) });
+        totalWon += b.amount * b.multiplier;
+        wonCount++;
       } else if (prev === "active" && b.status === "lost") {
-        setToast({ id: `lose-${b.id}`, kind: "lose", title: "LOSS", subtitle: `Stake ${formatUsd(b.amount)}` });
+        totalLost += b.amount;
+        lostCount++;
       }
       betStatusRef.current.set(b.id, b.status);
+    }
+
+    if (wonCount > 0) {
+      celebrateWin();
+      setToast({ id: `win-${Date.now()}`, kind: "win", title: "WIN", subtitle: `+${formatUsd(totalWon)}` });
+    } else if (lostCount > 0) {
+      setToast({
+        id: `lose-${Date.now()}`,
+        kind: "lose",
+        title: "LOSS",
+        subtitle: `-${formatUsd(totalLost)}${lostCount > 1 ? ` (${lostCount} bets)` : ""}`,
+      });
     }
   }, [bets]);
 
