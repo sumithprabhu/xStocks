@@ -13,6 +13,9 @@ export const privyConfig: PrivyClientConfig = {
     ethereum: {
       createOnLogin: "users-without-wallets",
     },
+    // Disable Privy's confirmation popup for every tx/signature —
+    // the embedded wallet signs silently. Essential for fast grid gameplay.
+    showWalletUIs: false,
   },
   appearance: {
     theme: "dark",

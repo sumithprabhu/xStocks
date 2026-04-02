@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { useAccount } from "wagmi";
 import { TopBar } from "./TopBar";
 import { PriceChart } from "./PriceChart";
 import { MultiplierGrid } from "./MultiplierGrid";
@@ -8,12 +9,15 @@ import { BetToast, type ToastPayload } from "./BetToast";
 import { usePriceEngine } from "../hooks/usePriceEngine";
 import { useBets } from "../hooks/useBets";
 import { useSnakeTrail } from "../hooks/useSnakeTrail";
-import { TOKENS } from "../lib/constants";
+import { useGdUsdBalance } from "../hooks/useGdUsdBalance";
+import { useOnChainBets } from "../hooks/useOnChainBets";
+import { useGridMatrix } from "../hooks/useGridMatrix";
+import { TOKENS, MIN_BET_STEPS_AHEAD, SNAKE_COLUMN_HIT_LAG } from "../lib/constants";
 import type { Bet, BetSize } from "../lib/types";
 import { celebrateWin } from "../lib/celebrate";
 import { formatBetCompact, formatUsd } from "../lib/format";
 
-const ANCHOR_FRAC = 0.38; // head dot sits at 38 % from left
+const ANCHOR_FRAC = 0.38;
 
 export function GridApp() {
   const [selectedToken, setSelectedToken] = useState(TOKENS[0]);
@@ -34,9 +38,28 @@ export function GridApp() {
     return () => ro.disconnect();
   }, []);
 
+  // ── On-chain data ─────────────────────────────────────────────────────────
+  const { address } = useAccount();
+  const { formatted: gdUsdBalance, refetch: refetchBalance } = useGdUsdBalance(address);
+  const { placeBetOnChain, ensureApproval } = useOnChainBets(address, refetchBalance);
+  const { matrix: contractMatrix } = useGridMatrix(selectedToken.contractAddress);
+
+  // Pre-warm approval as soon as the user lands on the grid
+  useEffect(() => {
+    if (address) void ensureApproval();
+  }, [address, ensureApproval]);
+
+  // ── Local game loop ───────────────────────────────────────────────────────
   const { currentPrice, history } = usePriceEngine(selectedToken);
   const { head, trail } = useSnakeTrail(selectedToken, currentPrice);
-  const { bets, balance, placeBet } = useBets(selectedToken, currentPrice, head, trail);
+  const { bets, balance: localBalance, placeBet } = useBets(
+    selectedToken,
+    currentPrice,
+    head,
+    trail,
+    gdUsdBalance,
+    contractMatrix,
+  );
 
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -84,9 +107,40 @@ export function GridApp() {
     }
   }, [bets]);
 
+  // Keep refs so handleCellClick closures never go stale
+  const headRef = useRef(head);
+  headRef.current = head;
+  const contractMatrixRef = useRef(contractMatrix);
+  contractMatrixRef.current = contractMatrix;
+  const balanceRef = useRef(localBalance);
+  balanceRef.current = localBalance;
+
   const handleCellClick = useCallback(
-    (row: number, globalCol: number) => placeBet(row, globalCol, betSize),
-    [placeBet, betSize]
+    (row: number, globalCol: number) => {
+      // Use the same lag-adjusted head that MultiplierGrid uses for canBet checks
+      const h = headRef.current;
+      const visualHead = Math.floor(Math.max(0, h.globalPhase - SNAKE_COLUMN_HIT_LAG));
+      const stepsAhead = globalCol - visualHead;
+      if (stepsAhead < MIN_BET_STEPS_AHEAD) return;
+
+      // Don't fire on-chain if user can't afford the bet
+      if (betSize > balanceRef.current) return;
+
+      const timeBuckets = Math.max(1, Math.min(8, stepsAhead));
+      console.log("[grid] cell clicked:", { row, globalCol, stepsAhead, timeBuckets, betSize, balance: balanceRef.current });
+
+      // Place locally for instant UX feedback
+      placeBet(row, globalCol, betSize);
+
+      // Place on-chain silently — no popup, fires in background
+      placeBetOnChain(
+        selectedToken.contractAddress,
+        row,         // priceTicks = signed row offset
+        timeBuckets,
+        betSize,
+      );
+    },
+    [placeBet, placeBetOnChain, betSize, selectedToken.contractAddress]
   );
 
   const anchorX = Math.floor(dims.w * ANCHOR_FRAC);
@@ -104,12 +158,10 @@ export function GridApp() {
         selectedToken={selectedToken}
         onSelectToken={setSelectedToken}
         currentPrice={currentPrice}
-        balance={balance}
+        balance={localBalance}
       />
 
-      {/* Main area: all layers stacked */}
       <div ref={containerRef} className="flex-1 relative min-h-0">
-        {/* LAYER 1: Grid (full area, bet tiles live here) */}
         <MultiplierGrid
           token={selectedToken}
           currentPrice={currentPrice}
@@ -121,9 +173,9 @@ export function GridApp() {
           onCellClick={handleCellClick}
           onSnakeHitBet={onSnakeHitBet}
           onDotY={setDotY}
+          contractMatrix={contractMatrix}
         />
 
-        {/* LAYER 2: Price chart canvas overlay — uses dotY from grid for exact alignment */}
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 20 }}>
           <PriceChart
             history={history}
@@ -136,10 +188,6 @@ export function GridApp() {
           />
         </div>
 
-        {/* Head dot + cursor line are rendered INSIDE MultiplierGrid (z-50)
-            so they share the exact same rowH / activeRowIdx coordinates. */}
-
-        {/* Controls */}
         <BetDock betSize={betSize} onBetSizeChange={setBetSize} />
         <BetToast toast={toast} onDismiss={dismissToast} />
       </div>

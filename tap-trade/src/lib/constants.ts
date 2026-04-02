@@ -1,4 +1,5 @@
 import type { TokenConfig, BetSize } from "./types";
+import { CONTRACTS } from "./contracts";
 
 /** Wall-clock duration for one full sweep (right → left, toward chart seam). */
 export const SNAKE_SWEEP_MS = 28_000;
@@ -20,25 +21,35 @@ export const SNAKE_TRAIL_MAX_SEGMENTS = 28;
 /** Per-column hold / expiry horizon labels (8 columns). */
 export const GRID_TIME_HORIZONS_SEC = [5, 10, 15, 30, 45, 60, 300, 600] as const;
 
+const W_QQQ = CONTRACTS.wQQQx;
+const W_SPY = CONTRACTS.wSPYx;
+
+/** On-chain grid only knows active collateral tokens; map charts to those addresses. */
+function gridTokenForTicker(ticker: string): `0x${string}` {
+  if (ticker === "QQQ") return W_QQQ;
+  if (ticker === "SPY") return W_SPY;
+  return W_QQQ;
+}
+
 export const TOKENS: TokenConfig[] = [
   // ── Tech ──
-  { symbol: "AAPLx", ticker: "AAPL", name: "Apple", basePrice: 255, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "NVDAx", ticker: "NVDA", name: "NVIDIA", basePrice: 177, tickSize: 0.1, volatility: 0.0012, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "TSLAx", ticker: "TSLA", name: "Tesla", basePrice: 380, tickSize: 0.1, volatility: 0.0015, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "MSFTx", ticker: "MSFT", name: "Microsoft", basePrice: 376, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "GOOGx", ticker: "GOOG", name: "Alphabet", basePrice: 165, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "AMZNx", ticker: "AMZN", name: "Amazon", basePrice: 205, tickSize: 0.1, volatility: 0.0010, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "METAx", ticker: "META", name: "Meta", basePrice: 595, tickSize: 0.1, volatility: 0.0011, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "AAPLx", ticker: "AAPL", name: "Apple", contractAddress: gridTokenForTicker("AAPL"), basePrice: 255, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "NVDAx", ticker: "NVDA", name: "NVIDIA", contractAddress: gridTokenForTicker("NVDA"), basePrice: 177, tickSize: 0.1, volatility: 0.0012, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "TSLAx", ticker: "TSLA", name: "Tesla", contractAddress: gridTokenForTicker("TSLA"), basePrice: 380, tickSize: 0.1, volatility: 0.0015, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "MSFTx", ticker: "MSFT", name: "Microsoft", contractAddress: gridTokenForTicker("MSFT"), basePrice: 376, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "GOOGx", ticker: "GOOG", name: "Alphabet", contractAddress: gridTokenForTicker("GOOG"), basePrice: 165, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "AMZNx", ticker: "AMZN", name: "Amazon", contractAddress: gridTokenForTicker("AMZN"), basePrice: 205, tickSize: 0.1, volatility: 0.0010, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "METAx", ticker: "META", name: "Meta", contractAddress: gridTokenForTicker("META"), basePrice: 595, tickSize: 0.1, volatility: 0.0011, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Indices / ETFs ──
-  { symbol: "SPYx", ticker: "SPY", name: "S&P 500", basePrice: 656, tickSize: 0.1, volatility: 0.0005, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "QQQx", ticker: "QQQ", name: "Nasdaq 100", basePrice: 540, tickSize: 0.1, volatility: 0.0006, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "IWMx", ticker: "IWM", name: "Russell 2000", basePrice: 210, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "SPYx", ticker: "SPY", name: "S&P 500", contractAddress: W_SPY, basePrice: 656, tickSize: 0.1, volatility: 0.0005, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "QQQx", ticker: "QQQ", name: "Nasdaq 100", contractAddress: W_QQQ, basePrice: 540, tickSize: 0.1, volatility: 0.0006, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "IWMx", ticker: "IWM", name: "Russell 2000", contractAddress: gridTokenForTicker("IWM"), basePrice: 210, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Finance ──
-  { symbol: "JPMx", ticker: "JPM", name: "JPMorgan", basePrice: 260, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "GSx", ticker: "GS", name: "Goldman Sachs", basePrice: 570, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "JPMx", ticker: "JPM", name: "JPMorgan", contractAddress: gridTokenForTicker("JPM"), basePrice: 260, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "GSx", ticker: "GS", name: "Goldman Sachs", contractAddress: gridTokenForTicker("GS"), basePrice: 570, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Other ──
-  { symbol: "COINx", ticker: "COIN", name: "Coinbase", basePrice: 235, tickSize: 0.1, volatility: 0.0018, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "PLTRx", ticker: "PLTR", name: "Palantir", basePrice: 115, tickSize: 0.1, volatility: 0.0016, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "COINx", ticker: "COIN", name: "Coinbase", contractAddress: gridTokenForTicker("COIN"), basePrice: 235, tickSize: 0.1, volatility: 0.0018, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "PLTRx", ticker: "PLTR", name: "Palantir", contractAddress: gridTokenForTicker("PLTR"), basePrice: 115, tickSize: 0.1, volatility: 0.0016, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
 ];
 
 export const BET_SIZES: BetSize[] = [1, 5, 10, 50];

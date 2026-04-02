@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, TrendingUp, Zap, Lock } from "lucide-react";
-import { useLocation } from "wouter";
+import {
+  ArrowRight,
+  Clock,
+  Layers,
+  Sparkles,
+  TrendingUp,
+  Zap,
+  Lock,
+} from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { TOKENS } from "../lib/constants";
 import { LandingGriddingPreview } from "./LandingGriddingPreview";
 import { NavAuthControls } from "./NavAuthControls";
@@ -350,21 +358,69 @@ export function LandingPage({ onEnter }: Props) {
                   </div>
 
                   {/* quick stats */}
-                  <div className="flex gap-6 mt-8 pt-6 border-t border-white/5">
-                    {[
-                      { label: "Stocks", value: "5" },
-                      { label: "Max multiplier", value: "31×" },
-                      { label: "Bucket time", value: "30s" },
-                    ].map(({ label, value }) => (
-                      <div key={label}>
-                        <p className="font-mono text-[24px] font-bold text-white">
-                          {value}
-                        </p>
-                        <p className="text-[12px] text-zinc-500 mt-0.5">
-                          {label}
-                        </p>
-                      </div>
-                    ))}
+                  <div className="mt-8 pt-6 border-t border-white/5">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-xl">
+                      {[
+                        {
+                          label: "Stocks",
+                          value: "5",
+                          Icon: Layers,
+                        },
+                        {
+                          label: "Max multiplier",
+                          value: "31×",
+                          Icon: Sparkles,
+                        },
+                        {
+                          label: "Bucket time",
+                          value: "30s",
+                          Icon: Clock,
+                        },
+                      ].map(({ label, value, Icon }) => (
+                        <div
+                          key={label}
+                          className="group relative overflow-hidden rounded-2xl border border-[#ff3b8d]/14 px-2.5 py-3 sm:px-4 sm:py-4 transition-all duration-300 hover:border-[#ff3b8d]/30 hover:shadow-[0_0_28px_rgba(255,59,141,0.12)]"
+                          style={{
+                            background:
+                              "linear-gradient(155deg, rgba(255,59,141,0.09) 0%, rgba(10,14,26,0.92) 55%, rgba(8,11,20,0.98) 100%)",
+                          }}
+                        >
+                          <div
+                            className="pointer-events-none absolute -right-4 -top-4 size-16 rounded-full opacity-40 blur-2xl transition-opacity group-hover:opacity-70"
+                            style={{
+                              background:
+                                "radial-gradient(circle, rgba(255,59,141,0.5), transparent 70%)",
+                            }}
+                          />
+                          <div className="relative flex flex-col items-center text-center sm:flex-row sm:items-start sm:gap-3 sm:text-left">
+                            <div
+                              className="mx-auto mb-2 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#ff3b8d]/20 transition-transform duration-300 group-hover:scale-105 sm:mx-0 sm:mb-0"
+                              style={{
+                                background:
+                                  "linear-gradient(180deg, rgba(255,59,141,0.18), rgba(255,59,141,0.05))",
+                                color: "#ff3b8d",
+                                boxShadow:
+                                  "0 0 20px rgba(255,59,141,0.15), inset 0 1px 0 rgba(255,255,255,0.08)",
+                              }}
+                            >
+                              <Icon
+                                size={17}
+                                strokeWidth={2.25}
+                                className="opacity-95"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-mono text-[1.35rem] sm:text-[1.65rem] font-bold tabular-nums leading-none tracking-tight text-white">
+                                {value}
+                              </p>
+                              <p className="mt-1.5 text-[10px] sm:text-[11px] font-medium tracking-wide text-zinc-500 group-hover:text-zinc-400 transition-colors leading-snug">
+                                {label}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </motion.div>
               </div>
@@ -538,11 +594,17 @@ export function LandingPage({ onEnter }: Props) {
           </section>
 
           {/* ── Footer ───────────────────────────────────────────────────── */}
-          <footer className="border-t border-[#ff3b8d]/8 px-6 py-6 flex items-center justify-between max-w-5xl mx-auto">
+          <footer className="border-t border-[#ff3b8d]/8 px-6 py-6 flex flex-wrap items-center justify-between gap-4 max-w-5xl mx-auto">
             <span className="font-logo text-xl text-[#ff3b8d]/70">
               xGrid
             </span>
             <div className="flex items-center gap-5 text-[12px] font-mono text-zinc-600">
+              <Link
+                href="/brand"
+                className="text-[#ff3b8d]/80 hover:text-[#ff3b8d] underline-offset-2 hover:underline transition-colors"
+              >
+                Brand kit
+              </Link>
               <span>Grid · Vault · xChange</span>
               <span
                 className="px-2 py-0.5 rounded"

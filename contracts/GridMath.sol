@@ -195,13 +195,19 @@ library GridMath {
         uint256 t_denom = 1_000_000_000 + pz;
         uint256 t       = (1_000_000_000 * PRECISION) / t_denom;
 
-        // Horner's method polynomial evaluation
-        uint256 poly = A5;
-        poly = (poly * t) / PRECISION + A4;
-        poly = (poly * t) / PRECISION + A3;
-        poly = (poly * t) / PRECISION + A2;
-        poly = (poly * t) / PRECISION + A1;
-        poly = (poly * t) / PRECISION;
+        // A&S 26.2.17 polynomial: p(t) = a1*t - a2*t^2 + a3*t^3 - a4*t^4 + a5*t^5
+        // Computed as pos - neg to handle alternating signs in unsigned arithmetic.
+        uint256 t2 = (t * t) / PRECISION;
+        uint256 t3 = (t2 * t) / PRECISION;
+        uint256 t4 = (t3 * t) / PRECISION;
+        uint256 t5 = (t4 * t) / PRECISION;
+
+        uint256 pos  = A1 * t  / PRECISION
+                     + A3 * t3 / PRECISION
+                     + A5 * t5 / PRECISION;
+        uint256 neg  = A2 * t2 / PRECISION
+                     + A4 * t4 / PRECISION;
+        uint256 poly = pos > neg ? pos - neg : 0;
 
         uint256 phi = _normalPDF(z);
         uint256 qz  = (phi * poly) / 1_000_000_000;

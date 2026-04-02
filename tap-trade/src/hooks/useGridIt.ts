@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import {
+  useWriteContract,
+  useReadContract,
+  useWaitForTransactionReceipt,
+  useConfig,
+} from "wagmi";
+import { waitForTransactionReceipt, readContract } from "@wagmi/core";
 import { parseUnits, type Address, maxUint256 } from "viem";
 import { CONTRACTS, ERC20_ABI, VAULT_ABI, GRID_ABI } from "../lib/contracts";
 
@@ -21,9 +27,9 @@ export function useGridIt(onSuccess?: () => void): UseGridItReturn {
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
 
+  const config = useConfig();
   const { writeContractAsync } = useWriteContract();
 
-  // Wait for the last tx
   const { isSuccess: txConfirmed } = useWaitForTransactionReceipt({
     hash: txHash,
     query: { enabled: !!txHash && (step === "staking" || step === "depositing") },
@@ -34,30 +40,46 @@ export function useGridIt(onSuccess?: () => void): UseGridItReturn {
     onSuccess?.();
   }
 
+  // ── Helper: approve only if allowance is insufficient ──────────────────────
+  async function ensureAllowance(
+    token: Address,
+    spender: Address,
+    amount: bigint,
+    owner: Address,
+  ) {
+    const allowance = await readContract(config, {
+      address: token,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [owner, spender],
+    }) as bigint;
+
+    if (allowance >= amount) return; // already approved
+
+    setStep("approving");
+    const approveTx = await writeContractAsync({
+      address: token,
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [spender, maxUint256],
+    });
+    // Wait for approval to be mined before proceeding
+    await waitForTransactionReceipt(config, { hash: approveTx });
+  }
+
+  // ── Stake xStock → mint gdUSD ──────────────────────────────────────────────
   const stakeToken = async (tokenAddress: Address, amount: string, decimals: number) => {
     setError(null);
     try {
       const amountWei = parseUnits(amount, decimals);
 
-      // 1. Check allowance, approve if needed
-      setStep("approving");
-      const approveTx = await writeContractAsync({
-        address: tokenAddress,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [CONTRACTS.xStockVault, maxUint256],
-      });
-      // Wait for approval
-      setTxHash(approveTx);
-      await new Promise<void>((res) => {
-        const poll = setInterval(async () => {
-          clearInterval(poll);
-          res();
-        }, 2000);
-        void poll;
-      });
+      // We need the user's address for allowance check — read it from the connected account
+      const accounts = config.state.connections;
+      const owner = [...accounts.values()][0]?.accounts[0] as Address | undefined;
+      if (!owner) throw new Error("No connected wallet");
 
-      // 2. Stake
+      await ensureAllowance(tokenAddress, CONTRACTS.xStockVault, amountWei, owner);
+
       setStep("staking");
       const stakeTx = await writeContractAsync({
         address: CONTRACTS.xStockVault,
@@ -72,21 +94,18 @@ export function useGridIt(onSuccess?: () => void): UseGridItReturn {
     }
   };
 
+  // ── Deposit USDC → mint gdUSD 1:1 ─────────────────────────────────────────
   const depositUsdc = async (stockToken: Address, usdcAmount: string) => {
     setError(null);
     try {
       const amountWei = parseUnits(usdcAmount, 6);
 
-      // 1. Approve USDC to xStocksGrid
-      setStep("approving");
-      await writeContractAsync({
-        address: CONTRACTS.USDC,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [CONTRACTS.xStocksGrid, maxUint256],
-      });
+      const accounts = config.state.connections;
+      const owner = [...accounts.values()][0]?.accounts[0] as Address | undefined;
+      if (!owner) throw new Error("No connected wallet");
 
-      // 2. Deposit USDC → gdUSD
+      await ensureAllowance(CONTRACTS.USDC, CONTRACTS.xStocksGrid, amountWei, owner);
+
       setStep("depositing");
       const depositTx = await writeContractAsync({
         address: CONTRACTS.xStocksGrid,

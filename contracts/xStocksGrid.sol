@@ -203,6 +203,14 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
         emit Paused(p);
     }
 
+    /// @notice Testnet helper — owner can seed the LP pool by minting gdUSD directly.
+    ///         No USDC required; for production this would be replaced by depositLiquidity.
+    function ownerFundPool(address token, uint256 gdUsdAmount) external onlyOwner {
+        _requireActive(token);
+        gdUSD.mint(address(this), gdUsdAmount);
+        poolGdUsd[token] += gdUsdAmount;
+    }
+
     // ─── USDC ↔ GridToken  (1 : 1) ───────────────────────────────────────────
 
     /// @notice Deposit USDC, receive GridTokens 1:1.
@@ -644,16 +652,16 @@ contract xStocksGrid is Ownable, ReentrancyGuard {
     ) internal view {
         uint256 freeGT = _freePoolGT(token);
         require(freeGT > 0, "pool empty");
-        require(potentialPayout <= (freeGT * 3000) / 10_000,   "exposure: single bet > 30% pool");
+        require(potentialPayout <= (freeGT * 8000) / 10_000,   "exposure: single bet > 80% pool");
 
         uint256 poolGT = poolGdUsd[token];
         require(
-            bucketMaxPayout[token][expiryTs] + potentialPayout <= (poolGT * 3000) / 10_000,
-            "exposure: bucket > 30% pool"
+            bucketMaxPayout[token][expiryTs] + potentialPayout <= (poolGT * 8000) / 10_000,
+            "exposure: bucket > 80% pool"
         );
 
-        // Single bet <= 5% of pool (in USDC terms, both sides are 1:1 so just compare GT)
-        require(gtAmount <= poolGT / 20, "exposure: single bet > 5% pool");
+        // Single bet <= 50% of pool
+        require(gtAmount <= poolGT / 2, "exposure: single bet > 50% pool");
     }
 
     function _freePoolGT(address token) internal view returns (uint256) {

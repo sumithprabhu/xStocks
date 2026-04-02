@@ -27,8 +27,8 @@ export function BetDock({ betSize, onBetSizeChange }: Props) {
       >
         <ChevronDown size={18} strokeWidth={2.5} />
       </button>
-      <span className="min-w-[2.25rem] text-center text-[13px] font-semibold text-white font-mono tabular-nums px-0.5">
-        ${betSize}
+      <span className="min-w-[3.5rem] text-center text-[13px] font-semibold text-white font-mono tabular-nums px-0.5">
+        {betSize} <span className="text-[#ff3b8d] text-[11px]">gdUSD</span>
       </span>
       <button
         type="button"

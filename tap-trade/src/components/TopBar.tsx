@@ -242,7 +242,7 @@ export function TopBar({
           aria-label="View portfolio"
         >
           <span className="text-[12px] sm:text-[13px] font-medium text-[#ff3b8d] font-mono tabular-nums truncate text-center w-full min-w-0">
-            Balance: {formatUsd(balance)}
+            {balance.toFixed(2)} <span className="text-[11px] opacity-80">gdUSD</span>
           </span>
         </Link>
         <NavAuthControls gridPillClassName={PILL_WALLET} />

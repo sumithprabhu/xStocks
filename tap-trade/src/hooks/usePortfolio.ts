@@ -120,7 +120,7 @@ export function usePortfolio(address: Address | undefined): Portfolio {
   });
 
   const totalGdUsd = gdUsd.reduce((s, g) => s + g.formatted, 0);
-  const totalUsd = assets.reduce((s, a) => s + a.usdValue, 0) + totalGdUsd;
+  const totalUsd = assets.reduce((s, a) => s + a.usdValue, 0);
 
   return { assets, gdUsd, totalGdUsd, totalUsd, isLoading, refetch };
 }

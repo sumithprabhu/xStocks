@@ -27,6 +27,8 @@ interface Props {
   onSnakeHitBet?: (bet: Bet) => void;
   /** Called every render with the exact dot Y pixel so PriceChart can match */
   onDotY?: (y: number) => void;
+  /** Real multiplier matrix from contract [row][col], values are display floats e.g. 2.2 */
+  contractMatrix?: number[][] | null;
 }
 
 export function MultiplierGrid({
@@ -39,6 +41,7 @@ export function MultiplierGrid({
   onCellClick,
   onSnakeHitBet,
   onDotY,
+  contractMatrix,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [cW, setCW] = useState(1200);
@@ -218,7 +221,22 @@ export function MultiplierGrid({
             >
               {visibleCols.map(({ g, stepsAhead, isPast, isNow, canBet }) => {
                 const timeBuckets = Math.max(1, Math.abs(stepsAhead));
-                const mult = calculateMultiplier(absRow, timeBuckets, houseEdgeBps, token.volatility, tickSize, currentPrice);
+                const colIdx = Math.max(
+                  0,
+                  Math.min(timeBuckets - 1, token.gridWidth - 1),
+                );
+                const contractCell = contractMatrix?.[ri]?.[colIdx];
+                const mult =
+                  contractCell != null && contractCell > 0
+                    ? contractCell
+                    : calculateMultiplier(
+                        absRow,
+                        timeBuckets,
+                        houseEdgeBps,
+                        token.volatility,
+                        tickSize,
+                        currentPrice,
+                      );
 
                 const bet = cellBets.get(`${signedRow}:${g}`);
                 const state = bet?.status;

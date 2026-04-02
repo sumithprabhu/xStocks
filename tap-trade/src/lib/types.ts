@@ -4,6 +4,7 @@ export interface TokenConfig {
   symbol: string;
   ticker: string;
   name: string;
+  contractAddress: `0x${string}`;
   basePrice: number;
   tickSize: number;
   volatility: number;
