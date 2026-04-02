@@ -33,23 +33,26 @@ function gridTokenForTicker(ticker: string): `0x${string}` {
 
 export const TOKENS: TokenConfig[] = [
   // ── Tech ──
-  { symbol: "AAPLx", ticker: "AAPL", name: "Apple", contractAddress: gridTokenForTicker("AAPL"), basePrice: 255, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "NVDAx", ticker: "NVDA", name: "NVIDIA", contractAddress: gridTokenForTicker("NVDA"), basePrice: 177, tickSize: 0.1, volatility: 0.0012, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "TSLAx", ticker: "TSLA", name: "Tesla", contractAddress: gridTokenForTicker("TSLA"), basePrice: 380, tickSize: 0.1, volatility: 0.0015, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "MSFTx", ticker: "MSFT", name: "Microsoft", contractAddress: gridTokenForTicker("MSFT"), basePrice: 376, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "GOOGx", ticker: "GOOG", name: "Alphabet", contractAddress: gridTokenForTicker("GOOG"), basePrice: 165, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "AMZNx", ticker: "AMZN", name: "Amazon", contractAddress: gridTokenForTicker("AMZN"), basePrice: 205, tickSize: 0.1, volatility: 0.0010, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "METAx", ticker: "META", name: "Meta", contractAddress: gridTokenForTicker("META"), basePrice: 595, tickSize: 0.1, volatility: 0.0011, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  //  volatility = per-second σ, calibrated for Black-Scholes with 3.5 s visual buckets
+  //  tickSize $0.10 = realistic stock price granularity
+  //  Higher-priced stocks need lower vol (same $0.10 is a smaller % move)
+  { symbol: "AAPLx", ticker: "AAPL", name: "Apple", contractAddress: gridTokenForTicker("AAPL"), basePrice: 255, tickSize: 0.1, volatility: 0.00028, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "NVDAx", ticker: "NVDA", name: "NVIDIA", contractAddress: gridTokenForTicker("NVDA"), basePrice: 177, tickSize: 0.1, volatility: 0.00035, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "TSLAx", ticker: "TSLA", name: "Tesla", contractAddress: gridTokenForTicker("TSLA"), basePrice: 380, tickSize: 0.1, volatility: 0.00025, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "MSFTx", ticker: "MSFT", name: "Microsoft", contractAddress: gridTokenForTicker("MSFT"), basePrice: 376, tickSize: 0.1, volatility: 0.00022, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "GOOGx", ticker: "GOOG", name: "Alphabet", contractAddress: gridTokenForTicker("GOOG"), basePrice: 165, tickSize: 0.1, volatility: 0.00038, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "AMZNx", ticker: "AMZN", name: "Amazon", contractAddress: gridTokenForTicker("AMZN"), basePrice: 205, tickSize: 0.1, volatility: 0.00032, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "METAx", ticker: "META", name: "Meta", contractAddress: gridTokenForTicker("META"), basePrice: 595, tickSize: 0.1, volatility: 0.00018, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Indices / ETFs ──
-  { symbol: "SPYx", ticker: "SPY", name: "S&P 500", contractAddress: W_SPY, basePrice: 656, tickSize: 0.1, volatility: 0.0005, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "QQQx", ticker: "QQQ", name: "Nasdaq 100", contractAddress: W_QQQ, basePrice: 540, tickSize: 0.1, volatility: 0.0006, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "IWMx", ticker: "IWM", name: "Russell 2000", contractAddress: gridTokenForTicker("IWM"), basePrice: 210, tickSize: 0.1, volatility: 0.0009, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "SPYx", ticker: "SPY", name: "S&P 500", contractAddress: W_SPY, basePrice: 656, tickSize: 0.1, volatility: 0.00016, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "QQQx", ticker: "QQQ", name: "Nasdaq 100", contractAddress: W_QQQ, basePrice: 540, tickSize: 0.1, volatility: 0.00020, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "IWMx", ticker: "IWM", name: "Russell 2000", contractAddress: gridTokenForTicker("IWM"), basePrice: 210, tickSize: 0.1, volatility: 0.00032, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Finance ──
-  { symbol: "JPMx", ticker: "JPM", name: "JPMorgan", contractAddress: gridTokenForTicker("JPM"), basePrice: 260, tickSize: 0.1, volatility: 0.0007, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "GSx", ticker: "GS", name: "Goldman Sachs", contractAddress: gridTokenForTicker("GS"), basePrice: 570, tickSize: 0.1, volatility: 0.0008, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "JPMx", ticker: "JPM", name: "JPMorgan", contractAddress: gridTokenForTicker("JPM"), basePrice: 260, tickSize: 0.1, volatility: 0.00026, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "GSx", ticker: "GS", name: "Goldman Sachs", contractAddress: gridTokenForTicker("GS"), basePrice: 570, tickSize: 0.1, volatility: 0.00018, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
   // ── Other ──
-  { symbol: "COINx", ticker: "COIN", name: "Coinbase", contractAddress: gridTokenForTicker("COIN"), basePrice: 235, tickSize: 0.1, volatility: 0.0018, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
-  { symbol: "PLTRx", ticker: "PLTR", name: "Palantir", contractAddress: gridTokenForTicker("PLTR"), basePrice: 115, tickSize: 0.1, volatility: 0.0016, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "COINx", ticker: "COIN", name: "Coinbase", contractAddress: gridTokenForTicker("COIN"), basePrice: 235, tickSize: 0.1, volatility: 0.00040, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
+  { symbol: "PLTRx", ticker: "PLTR", name: "Palantir", contractAddress: gridTokenForTicker("PLTR"), basePrice: 115, tickSize: 0.1, volatility: 0.00048, gridWidth: 8, gridHalfHeight: 6, houseEdgeBps: 1000 },
 ];
 
 export const BET_SIZES: BetSize[] = [1, 5, 10, 50];
