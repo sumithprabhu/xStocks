@@ -6,6 +6,9 @@ export const SNAKE_SWEEP_MS = 28_000;
 /** Rightmost playable column = gridWidth - 1 - SNAKE_RIGHT_RESERVE */
 export const SNAKE_RIGHT_RESERVE = 1;
 
+/** Minimum columns ahead a bet must be placed (prevents trivial near-head bets) */
+export const MIN_BET_STEPS_AHEAD = 2;
+
 /**
  * Fraction of one column (0–1) to wait before the logical column advances.
  * Matches hit/lose + “current” cell to where the sweep reads visually.

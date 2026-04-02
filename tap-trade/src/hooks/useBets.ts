@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bet, BetSize, TokenConfig } from "../lib/types";
 import type { SnakeSegment } from "./useSnakeTrail";
 import { calculateMultiplier } from "../lib/multiplier";
-import { INITIAL_BALANCE, SNAKE_COLUMN_HIT_LAG } from "../lib/constants";
+import { INITIAL_BALANCE, SNAKE_COLUMN_HIT_LAG, MIN_BET_STEPS_AHEAD } from "../lib/constants";
 
 let betSeq = 0;
 
@@ -28,7 +28,7 @@ export function useBets(
       const h = headRef.current;
 
       const stepsAhead = globalCol - h.globalCol;
-      if (stepsAhead <= 0) return;
+      if (stepsAhead < MIN_BET_STEPS_AHEAD) return;
       if (size > balance) return;
 
       const absRow = Math.abs(signedRow);

@@ -10,7 +10,7 @@ import { motion, useMotionValue, AnimatePresence } from "framer-motion";
 import type { TokenConfig, Bet, BetSize } from "../lib/types";
 import type { SnakeSegment } from "../hooks/useSnakeTrail";
 import { maxStepsAhead } from "../hooks/useSnakeTrail";
-import { SNAKE_COLUMN_HIT_LAG, GRID_TIME_HORIZONS_SEC } from "../lib/constants";
+import { SNAKE_COLUMN_HIT_LAG, GRID_TIME_HORIZONS_SEC, MIN_BET_STEPS_AHEAD } from "../lib/constants";
 import { calculateMultiplier } from "../lib/multiplier";
 import { formatMult, formatUsd } from "../lib/format";
 import { formatHorizonLabel } from "../lib/gridHorizons";
@@ -165,7 +165,7 @@ export function MultiplierGrid({
       const localCol = ((g % gridWidth) + gridWidth) % gridWidth;
       const isPast = stepsAhead < 0;
       const isNow = stepsAhead === 0;
-      const canBet = stepsAhead > 0 && stepsAhead <= maxAhead;
+      const canBet = stepsAhead >= MIN_BET_STEPS_AHEAD && stepsAhead <= maxAhead;
       out.push({ g, stepsAhead, localCol, isPast, isNow, canBet });
     }
     return out;
@@ -244,7 +244,7 @@ export function MultiplierGrid({
                     disabled={!canBet}
                     onClick={() => canBet && handleClick(signedRow, g)}
                     className={`absolute h-full flex items-center justify-center transition-colors duration-150
-                      ${canBet ? "cursor-pointer hover:bg-[#ff3b8d]/[0.06] active:bg-[#ff3b8d]/[0.12]" : "cursor-default"}
+                      ${canBet ? "cursor-pointer hover:bg-[#ff3b8d]/[0.06] active:bg-[#ff3b8d]/[0.12]" : "cursor-not-allowed"}
                       ${isHitFlash ? "grid-cell-hit" : ""}`}
                     style={{
                       left: (g - globalHead) * cellW,
